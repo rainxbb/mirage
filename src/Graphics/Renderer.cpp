@@ -1,0 +1,464 @@
+#include "Renderer.h"
+
+#include "../UI/Editor.h"
+#include "Pipeline.h"
+
+#include <array>
+#include <stdexcept>
+
+namespace Mirage
+{
+
+Renderer::Renderer(std::shared_ptr<VulkanContext> context, std::shared_ptr<Swapchain> swapchain,
+                   std::shared_ptr<MemoryAllocator> allocator, std::shared_ptr<ShaderManager> shaderMgr)
+    : m_context(context), m_swapchain(swapchain), m_allocator(allocator), m_shaderMgr(shaderMgr)
+{
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = m_context->GetCommandPool();
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT * 2;
+
+    std::vector<VkCommandBuffer> cmds(MAX_FRAMES_IN_FLIGHT * 2);
+    vkAllocateCommandBuffers(m_context->GetDevice(), &allocInfo, cmds.data());
+
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        m_frames[i].desktopCmd = cmds[i * 2];
+        m_frames[i].vrCmd = cmds[i * 2 + 1];
+    }
+
+    CreateSyncObjects();
+    CreateDesktopDepthResources(swapchain->GetExtent());
+
+    m_shaderMgr->SetReloadCallback([this]() { MarkPipelinesDirty(); });
+}
+
+Renderer::~Renderer()
+{
+    if (m_pipeline)
+        vkDestroyPipeline(m_context->GetDevice(), m_pipeline, nullptr);
+    if (m_pipelineLayout)
+        vkDestroyPipelineLayout(m_context->GetDevice(), m_pipelineLayout, nullptr);
+
+    if (m_desktopDepthImageView)
+        vkDestroyImageView(m_context->GetDevice(), m_desktopDepthImageView, nullptr);
+    if (m_desktopDepthImage)
+        vkDestroyImage(m_context->GetDevice(), m_desktopDepthImage, nullptr);
+    m_allocator->Free(m_desktopDepthAllocation);
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        vkDestroySemaphore(m_context->GetDevice(), m_frames[i].imageAvailableSem, nullptr);
+        vkDestroySemaphore(m_context->GetDevice(), m_frames[i].renderFinishedSem, nullptr);
+        vkDestroyFence(m_context->GetDevice(), m_frames[i].inFlightFence, nullptr);
+
+        if (m_frames[i].vrDepthImageView)
+            vkDestroyImageView(m_context->GetDevice(), m_frames[i].vrDepthImageView, nullptr);
+        if (m_frames[i].vrDepthImage)
+            vkDestroyImage(m_context->GetDevice(), m_frames[i].vrDepthImage, nullptr);
+        m_allocator->Free(m_frames[i].vrDepthAllocation);
+    }
+}
+
+void Renderer::InitPipeline()
+{
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+    VkDescriptorSetLayout setLayout = m_context->GetBindlessDescriptorSetLayout();
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts = &setLayout;
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset = 0;
+    pushRange.size = 256;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
+
+    if (vkCreatePipelineLayout(m_context->GetDevice(), &layoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create pipeline layout");
+    }
+
+    RebuildPipeline();
+}
+
+void Renderer::MarkPipelinesDirty() { m_pipelineDirty = true; }
+
+void Renderer::RebuildPipeline()
+{
+    if (m_pipeline)
+        vkDestroyPipeline(m_context->GetDevice(), m_pipeline, nullptr);
+
+    VkShaderModule vertShader = m_shaderMgr->GetShader("pbr.vert.spv");
+    VkShaderModule fragShader = m_shaderMgr->GetShader("pbr.frag.spv");
+
+    std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
+    bindingDescriptions[0].binding = 0;
+    bindingDescriptions[0].stride = sizeof(Vertex);
+    bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
+
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, normal);
+
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(Vertex, uv);
+
+    PipelineBuilder builder(m_context);
+    builder.SetShaders(vertShader, fragShader)
+        .SetVertexInput(bindingDescriptions, attributeDescriptions)
+        .SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+        .SetPolygonMode(VK_POLYGON_MODE_FILL)
+        .SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE)
+        .SetMultisamplingNone()
+        .EnableDepthTest(true, VK_COMPARE_OP_LESS)
+        .DisableBlending()
+        .SetColorAttachmentFormat(m_swapchain->GetImageFormat())
+        .SetDepthFormat(VK_FORMAT_D32_SFLOAT);
+
+    m_pipeline = builder.Build(m_pipelineLayout);
+    m_pipelineDirty = false;
+}
+
+void Renderer::CreateDesktopDepthResources(VkExtent2D extent)
+{
+    if (m_desktopDepthExtent.width == extent.width && m_desktopDepthExtent.height == extent.height)
+        return;
+
+    if (m_desktopDepthImageView)
+        vkDestroyImageView(m_context->GetDevice(), m_desktopDepthImageView, nullptr);
+    if (m_desktopDepthImage)
+        vkDestroyImage(m_context->GetDevice(), m_desktopDepthImage, nullptr);
+    m_allocator->Free(m_desktopDepthAllocation);
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = extent.width;
+    imageInfo.extent.height = extent.height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_D32_SFLOAT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(m_context->GetDevice(), &imageInfo, nullptr, &m_desktopDepthImage) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create depth image");
+    }
+
+    m_desktopDepthAllocation =
+        m_allocator->AllocateImage(m_desktopDepthImage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_desktopDepthExtent = extent;
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_desktopDepthImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_D32_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(m_context->GetDevice(), &viewInfo, nullptr, &m_desktopDepthImageView) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create depth image view");
+    }
+}
+
+void Renderer::CreateVrDepthResources(FrameContext& frame, VkExtent2D extent)
+{
+    if (frame.vrDepthImageView)
+        vkDestroyImageView(m_context->GetDevice(), frame.vrDepthImageView, nullptr);
+    if (frame.vrDepthImage)
+        vkDestroyImage(m_context->GetDevice(), frame.vrDepthImage, nullptr);
+    m_allocator->Free(frame.vrDepthAllocation);
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = extent.width;
+    imageInfo.extent.height = extent.height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_D32_SFLOAT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    vkCreateImage(m_context->GetDevice(), &imageInfo, nullptr, &frame.vrDepthImage);
+    frame.vrDepthAllocation =
+        m_allocator->AllocateImage(frame.vrDepthImage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    frame.vrDepthExtent = extent;
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = frame.vrDepthImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_D32_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    vkCreateImageView(m_context->GetDevice(), &viewInfo, nullptr, &frame.vrDepthImageView);
+}
+
+void Renderer::CreateSyncObjects()
+{
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        if (vkCreateSemaphore(m_context->GetDevice(), &semaphoreInfo, nullptr,
+                              &m_frames[i].imageAvailableSem) != VK_SUCCESS ||
+            vkCreateSemaphore(m_context->GetDevice(), &semaphoreInfo, nullptr,
+                              &m_frames[i].renderFinishedSem) != VK_SUCCESS ||
+            vkCreateFence(m_context->GetDevice(), &fenceInfo, nullptr, &m_frames[i].inFlightFence) !=
+                VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to create sync objects");
+        }
+    }
+}
+
+void Renderer::RenderDesktop(const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
+                             const glm::vec3& camPos, Editor& editor)
+{
+    if (m_pipelineDirty)
+        RebuildPipeline();
+
+    vkWaitForFences(m_context->GetDevice(), 1, &m_frames[m_currentFrame].inFlightFence, VK_TRUE, UINT64_MAX);
+
+    uint32_t imageIndex;
+    VkResult result = m_swapchain->AcquireNextImage(m_frames[m_currentFrame].imageAvailableSem, imageIndex);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        m_swapchain->Recreate();
+        CreateDesktopDepthResources(m_swapchain->GetExtent());
+        return;
+    }
+
+    vkResetFences(m_context->GetDevice(), 1, &m_frames[m_currentFrame].inFlightFence);
+
+    VkCommandBuffer cmd = m_frames[m_currentFrame].desktopCmd;
+    vkResetCommandBuffer(cmd, 0);
+
+    RecordDesktopCommandBuffer(m_frames[m_currentFrame], m_swapchain->GetImages()[imageIndex].imageView,
+                               m_swapchain->GetExtent(), scene, view, proj, camPos, editor);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    VkSemaphore waitSemaphores[] = {m_frames[m_currentFrame].imageAvailableSem};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmd;
+    VkSemaphore signalSemaphores[] = {m_frames[m_currentFrame].renderFinishedSem};
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    if (vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &submitInfo,
+                      m_frames[m_currentFrame].inFlightFence) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to submit draw command buffer");
+    }
+
+    m_swapchain->Present(m_frames[m_currentFrame].renderFinishedSem, imageIndex);
+    m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void Renderer::RenderVR(const Scene& scene, uint32_t viewIndex, VkImageView colorView, VkExtent2D extent,
+                        const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos)
+{
+    if (m_pipelineDirty)
+        RebuildPipeline();
+
+    FrameContext& frame = m_frames[m_currentFrame];
+
+    if (frame.vrDepthExtent.width != extent.width || frame.vrDepthExtent.height != extent.height)
+    {
+        CreateVrDepthResources(frame, extent);
+    }
+
+    vkResetCommandBuffer(frame.vrCmd, 0);
+    RecordVrCommandBuffer(frame, colorView, frame.vrDepthImageView, extent, scene, view, proj, camPos);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &frame.vrCmd;
+
+    vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+}
+
+void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView colorView, VkExtent2D extent,
+                                          const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
+                                          const glm::vec3& camPos, Editor& editor)
+{
+    VkCommandBuffer cmd = frame.desktopCmd;
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(cmd, &beginInfo);
+
+    VkRenderingAttachmentInfo colorAttachment{};
+    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    colorAttachment.imageView = colorView;
+    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.clearValue.color = {0.05f, 0.05f, 0.05f, 1.0f};
+
+    VkRenderingAttachmentInfo depthAttachment{};
+    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depthAttachment.imageView = m_desktopDepthImageView;
+    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.clearValue.depthStencil.depth = 1.0f;
+
+    VkRenderingInfo renderingInfo{};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.renderArea = {{0, 0}, extent};
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachments = &colorAttachment;
+    renderingInfo.pDepthAttachment = &depthAttachment;
+
+    vkCmdBeginRendering(cmd, &renderingInfo);
+
+    VkViewport viewport{0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    VkRect2D scissor{{0, 0}, extent};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+    VkDescriptorSet bindlessSet = m_context->GetBindlessDescriptorSet();
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &bindlessSet, 0,
+                            nullptr);
+
+    for (const auto& entity : scene.GetEntities())
+    {
+        struct PushConstants
+        {
+            glm::mat4 model, view, proj;
+            glm::vec3 camPos, lightDir, lightColor;
+            uint32_t albedoTexIndex;
+        } pc{entity.transform.GetMatrix(),
+             view,
+             proj,
+             camPos,
+             glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)),
+             glm::vec3(1.0f),
+             entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0};
+
+        vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(pc), &pc);
+        if (entity.mesh)
+            entity.mesh->Draw(cmd);
+    }
+
+    editor.RecordDrawData(cmd);
+
+    vkCmdEndRendering(cmd);
+    vkEndCommandBuffer(cmd);
+}
+
+void Renderer::RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView, VkImageView depthView,
+                                     VkExtent2D extent, const Scene& scene, const glm::mat4& view,
+                                     const glm::mat4& proj, const glm::vec3& camPos)
+{
+    VkCommandBuffer cmd = frame.vrCmd;
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(cmd, &beginInfo);
+
+    VkRenderingAttachmentInfo colorAttachment{};
+    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    colorAttachment.imageView = colorView;
+    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.clearValue.color = {0.05f, 0.05f, 0.05f, 1.0f};
+
+    VkRenderingAttachmentInfo depthAttachment{};
+    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depthAttachment.imageView = depthView;
+    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.clearValue.depthStencil.depth = 1.0f;
+
+    VkRenderingInfo renderingInfo{};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.renderArea = {{0, 0}, extent};
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachments = &colorAttachment;
+    renderingInfo.pDepthAttachment = &depthAttachment;
+
+    vkCmdBeginRendering(cmd, &renderingInfo);
+
+    VkViewport viewport{0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    VkRect2D scissor{{0, 0}, extent};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+    VkDescriptorSet bindlessSet = m_context->GetBindlessDescriptorSet();
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &bindlessSet, 0,
+                            nullptr);
+
+    for (const auto& entity : scene.GetEntities())
+    {
+        struct PushConstants
+        {
+            glm::mat4 model, view, proj;
+            glm::vec3 camPos, lightDir, lightColor;
+            uint32_t albedoTexIndex;
+        } pc{entity.transform.GetMatrix(),
+             view,
+             proj,
+             camPos,
+             glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)),
+             glm::vec3(1.0f),
+             entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0};
+
+        vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(pc), &pc);
+        if (entity.mesh)
+            entity.mesh->Draw(cmd);
+    }
+
+    vkCmdEndRendering(cmd);
+    vkEndCommandBuffer(cmd);
+}
+
+} // namespace Mirage

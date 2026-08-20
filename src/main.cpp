@@ -1,7 +1,19 @@
+#include "Core/Application.h"
+
 #include <iostream>
+#include <stdexcept>
 
 int main()
 {
-    std::cout << "Hello, World!" << std::endl;
-    return 0;
+    try
+    {
+        Mirage::Application app;
+        app.Run();
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Fatal Error: " << e.what() << "\n";
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
