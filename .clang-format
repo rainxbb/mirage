@@ -1,0 +1,33 @@
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+ColumnLimit: 110
+
+BreakBeforeBraces: Allman
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+NamespaceIndentation: None
+
+AlwaysBreakTemplateDeclarations: true
+
+SortIncludes: true
+IncludeBlocks: Regroup
+
+SpacesBeforeTrailingComments: 1
+
+IndentCaseLabels: true
+
+SpaceBeforeParens: ControlStatements
+
+ConstructorInitializerIndentWidth: 4
+
+PackConstructorInitializers: NextLine
+
+AccessModifierOffset: -4
+
+EmptyLineBeforeAccessModifier: LogicalBlock
