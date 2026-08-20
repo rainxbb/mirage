@@ -1,11 +1,12 @@
 #pragma once
 #include "../Graphics/VulkanContext.h"
 
-#define XR_USE_GRAPHICS_API_VULKAN
-#include <openxr/openxr.h>
-#include <openxr/openxr_platform.h>
 #include <glm/glm.hpp>
 #include <memory>
+#define XR_USE_GRAPHICS_API_VULKAN
+#define XR_EXTENSION_PROTOTYPES
+#include <openxr/openxr.h>
+#include <openxr/openxr_platform.h>
 #include <vector>
 
 namespace Mirage
@@ -39,8 +40,9 @@ public:
     void PollEvents();
 
     bool BeginFrame();
-    void RenderViews(const std::function<void(uint32_t viewIndex, VkImageView colorView,
-                                              VkImageView depthView, VkExtent2D extent)>& renderFunc);
+    void RenderViews(
+        const std::function<void(uint32_t viewIndex, VkImageView colorView, VkImage colorImage,
+                                 VkImageView depthView, VkImage depthImage, VkExtent2D extent)>& renderFunc);
     void EndFrame();
 
     bool IsSessionRunning() const { return m_sessionRunning; }

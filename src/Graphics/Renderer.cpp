@@ -9,6 +9,58 @@
 namespace Mirage
 {
 
+namespace
+{
+
+void TransitionImageLayout(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout,
+                           VkImageLayout newLayout, bool isDepth)
+{
+    VkImageMemoryBarrier2 barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+    {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        barrier.srcAccessMask = 0;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    }
+    else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+    {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        barrier.srcAccessMask = 0;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    }
+    else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+    {
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+        barrier.dstAccessMask = 0;
+    }
+
+    VkDependencyInfo depInfo{};
+    depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    depInfo.imageMemoryBarrierCount = 1;
+    depInfo.pImageMemoryBarriers = &barrier;
+
+    vkCmdPipelineBarrier2(cmd, &depInfo);
+}
+
+} // namespace
+
 Renderer::Renderer(std::shared_ptr<VulkanContext> context, std::shared_ptr<Swapchain> swapchain,
                    std::shared_ptr<MemoryAllocator> allocator, std::shared_ptr<ShaderManager> shaderMgr)
     : m_context(context), m_swapchain(swapchain), m_allocator(allocator), m_shaderMgr(shaderMgr)
@@ -37,6 +89,8 @@ Renderer::Renderer(std::shared_ptr<VulkanContext> context, std::shared_ptr<Swapc
 
 Renderer::~Renderer()
 {
+    m_context->WaitIdle();
+
     if (m_pipeline)
         vkDestroyPipeline(m_context->GetDevice(), m_pipeline, nullptr);
     if (m_pipelineLayout)
@@ -90,6 +144,8 @@ void Renderer::MarkPipelinesDirty() { m_pipelineDirty = true; }
 
 void Renderer::RebuildPipeline()
 {
+    m_context->WaitIdle();
+
     if (m_pipeline)
         vkDestroyPipeline(m_context->GetDevice(), m_pipeline, nullptr);
 
@@ -257,10 +313,14 @@ void Renderer::RenderDesktop(const Scene& scene, const glm::mat4& view, const gl
     uint32_t imageIndex;
     VkResult result = m_swapchain->AcquireNextImage(m_frames[m_currentFrame].imageAvailableSem, imageIndex);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
         m_swapchain->Recreate();
         CreateDesktopDepthResources(m_swapchain->GetExtent());
+        return;
+    }
+    else if (result != VK_SUCCESS)
+    {
         return;
     }
 
@@ -270,7 +330,8 @@ void Renderer::RenderDesktop(const Scene& scene, const glm::mat4& view, const gl
     vkResetCommandBuffer(cmd, 0);
 
     RecordDesktopCommandBuffer(m_frames[m_currentFrame], m_swapchain->GetImages()[imageIndex].imageView,
-                               m_swapchain->GetExtent(), scene, view, proj, camPos, editor);
+                               m_swapchain->GetImages()[imageIndex].image, m_swapchain->GetExtent(), scene,
+                               view, proj, camPos, editor);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -288,45 +349,50 @@ void Renderer::RenderDesktop(const Scene& scene, const glm::mat4& view, const gl
     if (vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &submitInfo,
                       m_frames[m_currentFrame].inFlightFence) != VK_SUCCESS)
     {
-        throw std::runtime_error("Failed to submit draw command buffer");
+        return;
     }
 
     m_swapchain->Present(m_frames[m_currentFrame].renderFinishedSem, imageIndex);
     m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void Renderer::RenderVR(const Scene& scene, uint32_t viewIndex, VkImageView colorView, VkExtent2D extent,
-                        const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos)
+void Renderer::RenderVR(const Scene& scene, uint32_t viewIndex, VkImageView colorView, VkImage colorImage,
+                        VkImageView depthView, VkImage depthImage, VkExtent2D extent, const glm::mat4& view,
+                        const glm::mat4& proj, const glm::vec3& camPos)
 {
     if (m_pipelineDirty)
         RebuildPipeline();
 
     FrameContext& frame = m_frames[m_currentFrame];
-
     if (frame.vrDepthExtent.width != extent.width || frame.vrDepthExtent.height != extent.height)
     {
         CreateVrDepthResources(frame, extent);
     }
 
     vkResetCommandBuffer(frame.vrCmd, 0);
-    RecordVrCommandBuffer(frame, colorView, frame.vrDepthImageView, extent, scene, view, proj, camPos);
+    RecordVrCommandBuffer(frame, colorView, colorImage, depthView, depthImage, extent, scene, view, proj,
+                          camPos);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &frame.vrCmd;
-
     vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
 }
 
-void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView colorView, VkExtent2D extent,
-                                          const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
-                                          const glm::vec3& camPos, Editor& editor)
+void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
+                                          VkExtent2D extent, const Scene& scene, const glm::mat4& view,
+                                          const glm::mat4& proj, const glm::vec3& camPos, Editor& editor)
 {
     VkCommandBuffer cmd = frame.desktopCmd;
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &beginInfo);
+
+    TransitionImageLayout(cmd, colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+    TransitionImageLayout(cmd, m_desktopDepthImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
 
     VkRenderingAttachmentInfo colorAttachment{};
     colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -388,17 +454,37 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView color
     editor.RecordDrawData(cmd);
 
     vkCmdEndRendering(cmd);
+
+    TransitionImageLayout(cmd, colorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, false);
+
     vkEndCommandBuffer(cmd);
 }
 
-void Renderer::RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView, VkImageView depthView,
-                                     VkExtent2D extent, const Scene& scene, const glm::mat4& view,
-                                     const glm::mat4& proj, const glm::vec3& camPos)
+void Renderer::RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
+                                     VkImageView depthView, VkImage depthImage, VkExtent2D extent,
+                                     const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
+                                     const glm::vec3& camPos)
 {
     VkCommandBuffer cmd = frame.vrCmd;
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &beginInfo);
+
+    TransitionImageLayout(cmd, colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+    if (depthImage != VK_NULL_HANDLE)
+    {
+        TransitionImageLayout(cmd, depthImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
+    }
+    else
+    {
+        TransitionImageLayout(cmd, frame.vrDepthImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
+        depthView = frame.vrDepthImageView;
+        depthImage = frame.vrDepthImage;
+    }
 
     VkRenderingAttachmentInfo colorAttachment{};
     colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;

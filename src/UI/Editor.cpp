@@ -56,6 +56,8 @@ Editor::Editor(std::shared_ptr<VulkanContext> context, std::shared_ptr<Window> w
     pipeline_rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     pipeline_rendering_info.colorAttachmentCount = 1;
     pipeline_rendering_info.pColorAttachmentFormats = &swapchainFormat;
+    pipeline_rendering_info.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+
     init_info.PipelineInfoMain.PipelineRenderingCreateInfo = pipeline_rendering_info;
 
     ImGui_ImplVulkan_Init(&init_info);
@@ -88,8 +90,7 @@ void Editor::RecordDrawData(VkCommandBuffer cmd)
 {
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+    ImGui::EndFrame();
 }
-
-void Editor::EndFrame() {}
 
 } // namespace Mirage

@@ -16,7 +16,6 @@ public:
     void NewFrame();
     void DrawUI();
     void RecordDrawData(VkCommandBuffer cmd);
-    void EndFrame();
 
 private:
     std::shared_ptr<VulkanContext> m_context;

@@ -19,8 +19,12 @@
         }                                                                                                    \
     } while (0)
 
+namespace Mirage
+{
+
 namespace
 {
+
 glm::mat4 XrPoseToViewMatrix(const XrPosef& pose)
 {
     glm::quat orientation(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z);
@@ -51,10 +55,8 @@ glm::mat4 XrFovToProjectionMatrix(const XrFovf& fov, float nearZ, float farZ)
 
     return proj;
 }
-} // namespace
 
-namespace Mirage
-{
+} // namespace
 
 OpenXRContext::OpenXRContext(std::shared_ptr<VulkanContext> context) : m_context(context) {}
 
@@ -122,6 +124,16 @@ void OpenXRContext::Initialize()
 
 void OpenXRContext::CreateSession()
 {
+    auto xrGetVulkanGraphicsRequirements2KHR = [&]()
+    {
+        PFN_xrGetVulkanGraphicsRequirements2KHR func = nullptr;
+        XR_CHECK(xrGetInstanceProcAddr(m_instance, "xrGetVulkanGraphicsRequirements2KHR",
+                                       reinterpret_cast<PFN_xrVoidFunction*>(&func)));
+        return func;
+    }();
+    XrGraphicsRequirementsVulkan2KHR graphicsRequirements{XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN2_KHR};
+    XR_CHECK(xrGetVulkanGraphicsRequirements2KHR(m_instance, m_systemId, &graphicsRequirements));
+
     XrGraphicsBindingVulkan2KHR graphicsBinding{};
     graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR;
     graphicsBinding.instance = m_context->GetInstance();
@@ -316,8 +328,8 @@ bool OpenXRContext::BeginFrame()
 }
 
 void OpenXRContext::RenderViews(
-    const std::function<void(uint32_t viewIndex, VkImageView colorView, VkImageView depthView,
-                             VkExtent2D extent)>& renderFunc)
+    const std::function<void(uint32_t viewIndex, VkImageView colorView, VkImage colorImage,
+                             VkImageView depthView, VkImage depthImage, VkExtent2D extent)>& renderFunc)
 {
     if (!m_sessionRunning || !m_frameState.shouldRender)
         return;
@@ -332,10 +344,8 @@ void OpenXRContext::RenderViews(
         waitInfo.timeout = XR_INFINITE_DURATION;
         XR_CHECK(xrWaitSwapchainImage(m_swapchains[i].handle, &waitInfo));
 
-        // We don't have a depth swapchain in this basic setup, passing VK_NULL_HANDLE for depth
-        // A full implementation would create a depth swapchain or use a shared depth buffer
-        renderFunc(i, m_swapchains[i].imageViews[imageIndex], VK_NULL_HANDLE,
-                   {m_swapchains[i].width, m_swapchains[i].height});
+        renderFunc(i, m_swapchains[i].imageViews[imageIndex], m_swapchains[i].images[imageIndex],
+                   VK_NULL_HANDLE, VK_NULL_HANDLE, {m_swapchains[i].width, m_swapchains[i].height});
 
         XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
         XR_CHECK(xrReleaseSwapchainImage(m_swapchains[i].handle, &releaseInfo));

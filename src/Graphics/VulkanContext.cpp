@@ -237,7 +237,7 @@ void VulkanContext::CreateBindlessResources()
     VkDescriptorSetLayoutBinding sampledImageBinding{};
     sampledImageBinding.binding = 0;
     sampledImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    sampledImageBinding.descriptorCount = 10000; // Large array for bindless
+    sampledImageBinding.descriptorCount = 10000;
     sampledImageBinding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT;
     bindings.push_back(sampledImageBinding);
 

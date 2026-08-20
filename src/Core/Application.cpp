@@ -43,8 +43,6 @@ Application::Application() { Init(); }
 
 Application::~Application()
 {
-    if (m_renderer)
-        m_renderer->InitPipeline();
     m_context->WaitIdle();
 }
 
@@ -183,11 +181,12 @@ void Application::Update()
         if (m_xrContext->BeginFrame())
         {
             m_xrContext->RenderViews(
-                [&](uint32_t viewIndex, VkImageView colorView, VkImageView depthView, VkExtent2D extent)
+                [&](uint32_t viewIndex, VkImageView colorView, VkImage colorImage, VkImageView depthView,
+                    VkImage depthImage, VkExtent2D extent)
                 {
                     auto& xrView = m_xrContext->GetViews()[viewIndex];
-                    m_renderer->RenderVR(m_scene, viewIndex, colorView, extent, xrView.view,
-                                         xrView.projection, m_camPos);
+                    m_renderer->RenderVR(m_scene, viewIndex, colorView, colorImage, depthView, depthImage,
+                                         extent, xrView.view, xrView.projection, m_camPos);
                 });
             m_xrContext->EndFrame();
         }

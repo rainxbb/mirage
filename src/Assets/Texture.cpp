@@ -170,7 +170,7 @@ Texture::Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryA
     descriptorWrite.dstBinding = 0;
     descriptorWrite.dstArrayElement = m_bindlessIndex;
     descriptorWrite.descriptorCount = 1;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     descriptorWrite.pImageInfo = &imageInfo;
     vkUpdateDescriptorSets(m_context->GetDevice(), 1, &descriptorWrite, 0, nullptr);
 }

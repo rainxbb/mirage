@@ -40,8 +40,9 @@ public:
     void RenderDesktop(const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
                        const glm::vec3& camPos, Editor& editor);
 
-    void RenderVR(const Scene& scene, uint32_t viewIndex, VkImageView colorView, VkExtent2D extent,
-                  const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos);
+    void RenderVR(const Scene& scene, uint32_t viewIndex, VkImageView colorView, VkImage colorImage,
+                  VkImageView depthView, VkImage depthImage, VkExtent2D extent, const glm::mat4& view,
+                  const glm::mat4& proj, const glm::vec3& camPos);
 
 private:
     void CreateDesktopDepthResources(VkExtent2D extent);
@@ -49,13 +50,14 @@ private:
     void CreateSyncObjects();
     void RebuildPipeline();
 
-    void RecordDesktopCommandBuffer(FrameContext& frame, VkImageView colorView, VkExtent2D extent,
-                                    const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
-                                    const glm::vec3& camPos, Editor& editor);
+    void RecordDesktopCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
+                                    VkExtent2D extent, const Scene& scene, const glm::mat4& view,
+                                    const glm::mat4& proj, const glm::vec3& camPos, Editor& editor);
 
-    void RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView, VkImageView depthView,
-                               VkExtent2D extent, const Scene& scene, const glm::mat4& view,
-                               const glm::mat4& proj, const glm::vec3& camPos);
+    void RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
+                               VkImageView depthView, VkImage depthImage, VkExtent2D extent,
+                               const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
+                               const glm::vec3& camPos);
 
     std::shared_ptr<VulkanContext> m_context;
     std::shared_ptr<Swapchain> m_swapchain;
