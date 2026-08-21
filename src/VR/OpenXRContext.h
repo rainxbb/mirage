@@ -30,30 +30,31 @@ struct XrViewData
     glm::mat4 view;
 };
 
-class OpenXRContext
-{
+class OpenXRContext {
 public:
-    OpenXRContext(std::shared_ptr<VulkanContext> context);
+    OpenXRContext();
     ~OpenXRContext();
 
-    void Initialize();
-    void PollEvents();
+    void CreateInstance();
+    
+    std::vector<const char*> GetRequiredVulkanInstanceExtensions();
+    std::vector<const char*> GetRequiredVulkanDeviceExtensions();
+    VkPhysicalDevice GetRequiredVulkanPhysicalDevice(VkInstance vkInstance);
 
+    void CreateSession(std::shared_ptr<VulkanContext> context);
+    void CreateReferenceSpace();
+    void CreateViewConfigurations();
+    void CreateSwapchains();
+
+    void PollEvents();
     bool BeginFrame();
-    void RenderViews(
-        const std::function<void(uint32_t viewIndex, VkImageView colorView, VkImage colorImage,
-                                 VkImageView depthView, VkImage depthImage, VkExtent2D extent)>& renderFunc);
+    void RenderViews(const std::function<void(uint32_t viewIndex, VkImageView colorView, VkImage colorImage, VkImageView depthView, VkImage depthImage, VkExtent2D extent)>& renderFunc);
     void EndFrame();
 
     bool IsSessionRunning() const { return m_sessionRunning; }
-    bool IsSessionFocused() const { return m_sessionState == XR_SESSION_STATE_FOCUSED; }
     const std::vector<XrViewData>& GetViews() const { return m_views; }
 
 private:
-    void CreateSession();
-    void CreateSwapchains();
-    void CreateViewConfigurations();
-
     void HandleSessionStateChange(XrSessionState newState);
 
     std::shared_ptr<VulkanContext> m_context;
@@ -65,11 +66,14 @@ private:
     bool m_sessionRunning = false;
 
     XrSpace m_appSpace = XR_NULL_HANDLE;
-
+    
     std::vector<XrViewData> m_views;
     std::vector<XrSwapchainData> m_swapchains;
-
+    
     XrFrameState m_frameState{};
+
+    std::vector<std::string> m_instanceExtensionStrings;
+    std::vector<std::string> m_deviceExtensionStrings;
 };
 
 } // namespace Mirage

@@ -13,28 +13,78 @@ namespace Mirage
 
 Application::Application() { Init(); }
 
-Application::~Application() { m_context->WaitIdle(); }
+Application::~Application()
+{
+    if (m_context)
+    {
+        m_context->WaitIdle();
+    }
+
+    m_renderer.reset();
+    m_editor.reset();
+    m_shaderMgr.reset();
+    m_bindlessAlloc.reset();
+    m_allocator.reset();
+    m_swapchain.reset();
+    m_xrContext.reset();
+
+    if (m_context)
+    {
+        m_context.reset();
+    }
+    m_window.reset();
+}
 
 void Application::Init()
 {
-    m_window = std::make_shared<Window>("Mirage", 1920, 1080);
-    m_context = std::make_shared<VulkanContext>(m_window);
-    m_swapchain = std::make_shared<Swapchain>(m_context, m_window);
-    m_allocator = std::make_shared<MemoryAllocator>(m_context);
-    m_bindlessAlloc = std::make_shared<BindlessAllocator>(10000);
-    m_shaderMgr = std::make_shared<ShaderManager>(m_context, "shaders");
+    m_window = std::make_shared<Window>("Mirage VR Sandbox", 1280, 720);
+
+    m_xrContext = std::make_shared<OpenXRContext>();
+    std::vector<const char*> xrInstExts;
+    std::vector<const char*> xrDevExts;
 
     try
     {
-        m_xrContext = std::make_shared<OpenXRContext>(m_context);
-        m_xrContext->Initialize();
+        m_xrContext->CreateInstance();
+
+        xrInstExts = m_xrContext->GetRequiredVulkanInstanceExtensions();
+        xrDevExts = m_xrContext->GetRequiredVulkanDeviceExtensions();
+
+        m_context = std::make_shared<VulkanContext>(m_window, xrInstExts, xrDevExts);
+
+        VkPhysicalDevice xrPhysicalDevice =
+            m_xrContext->GetRequiredVulkanPhysicalDevice(m_context->GetInstance());
+
+        m_context->Initialize(xrPhysicalDevice);
+
+        m_xrContext->CreateSession(m_context);
+        m_xrContext->CreateReferenceSpace();
+        m_xrContext->CreateViewConfigurations();
+        m_xrContext->CreateSwapchains();
+
         std::cout << "OpenXR Initialized successfully.\n";
     }
     catch (const std::exception& e)
     {
         std::cerr << "OpenXR failed to initialize (running in Desktop-only mode): " << e.what() << "\n";
         m_xrContext = nullptr;
+
+        if (!m_context)
+        {
+            std::vector<const char*> emptyExts;
+            m_context = std::make_shared<VulkanContext>(m_window, emptyExts, emptyExts);
+            m_context->Initialize();
+        }
+        else
+        {
+            m_context->Initialize();
+        }
     }
+
+    m_swapchain = std::make_shared<Swapchain>(m_context, m_window);
+    m_allocator = std::make_shared<MemoryAllocator>(m_context);
+    m_bindlessAlloc = std::make_shared<BindlessAllocator>(10000);
+    m_shaderMgr = std::make_shared<ShaderManager>(m_context, "shaders");
 
     m_renderer = std::make_shared<Renderer>(m_context, m_swapchain, m_allocator, m_shaderMgr);
     m_renderer->InitPipeline();

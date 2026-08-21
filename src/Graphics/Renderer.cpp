@@ -71,15 +71,16 @@ Renderer::Renderer(std::shared_ptr<VulkanContext> context, std::shared_ptr<Swapc
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = m_context->GetCommandPool();
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT * 2;
+    allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT * 3;
 
-    std::vector<VkCommandBuffer> cmds(MAX_FRAMES_IN_FLIGHT * 2);
+    std::vector<VkCommandBuffer> cmds(MAX_FRAMES_IN_FLIGHT * 3);
     vkAllocateCommandBuffers(m_context->GetDevice(), &allocInfo, cmds.data());
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
-        m_frames[i].desktopCmd = cmds[i * 2];
-        m_frames[i].vrCmd = cmds[i * 2 + 1];
+        m_frames[i].desktopCmd = cmds[i * 3];
+        m_frames[i].vrCmds[0] = cmds[i * 3 + 1];
+        m_frames[i].vrCmds[1] = cmds[i * 3 + 2];
     }
 
     CreateSyncObjects();
@@ -90,6 +91,8 @@ Renderer::Renderer(std::shared_ptr<VulkanContext> context, std::shared_ptr<Swapc
 
 Renderer::~Renderer()
 {
+    if (!m_context)
+        return;
     m_context->WaitIdle();
 
     if (m_pipeline)
@@ -103,17 +106,36 @@ Renderer::~Renderer()
         vkDestroyImage(m_context->GetDevice(), m_desktopDepthImage, nullptr);
     m_allocator->Free(m_desktopDepthAllocation);
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-    {
-        vkDestroySemaphore(m_context->GetDevice(), m_frames[i].imageAvailableSem, nullptr);
-        vkDestroySemaphore(m_context->GetDevice(), m_frames[i].renderFinishedSem, nullptr);
-        vkDestroyFence(m_context->GetDevice(), m_frames[i].inFlightFence, nullptr);
+    std::vector<VkCommandBuffer> cmdsToFree;
+    cmdsToFree.reserve(MAX_FRAMES_IN_FLIGHT * 3);
 
-        if (m_frames[i].vrDepthImageView)
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        if (m_frames[i].desktopCmd != VK_NULL_HANDLE)
+            cmdsToFree.push_back(m_frames[i].desktopCmd);
+        if (m_frames[i].vrCmds[0] != VK_NULL_HANDLE)
+            cmdsToFree.push_back(m_frames[i].vrCmds[0]);
+        if (m_frames[i].vrCmds[1] != VK_NULL_HANDLE)
+            cmdsToFree.push_back(m_frames[i].vrCmds[1]);
+
+        if (m_frames[i].imageAvailableSem != VK_NULL_HANDLE)
+            vkDestroySemaphore(m_context->GetDevice(), m_frames[i].imageAvailableSem, nullptr);
+        if (m_frames[i].renderFinishedSem != VK_NULL_HANDLE)
+            vkDestroySemaphore(m_context->GetDevice(), m_frames[i].renderFinishedSem, nullptr);
+        if (m_frames[i].inFlightFence != VK_NULL_HANDLE)
+            vkDestroyFence(m_context->GetDevice(), m_frames[i].inFlightFence, nullptr);
+
+        if (m_frames[i].vrDepthImageView != VK_NULL_HANDLE)
             vkDestroyImageView(m_context->GetDevice(), m_frames[i].vrDepthImageView, nullptr);
-        if (m_frames[i].vrDepthImage)
+        if (m_frames[i].vrDepthImage != VK_NULL_HANDLE)
             vkDestroyImage(m_context->GetDevice(), m_frames[i].vrDepthImage, nullptr);
         m_allocator->Free(m_frames[i].vrDepthAllocation);
+    }
+
+    if (!cmdsToFree.empty())
+    {
+        vkFreeCommandBuffers(m_context->GetDevice(), m_context->GetCommandPool(),
+                             static_cast<uint32_t>(cmdsToFree.size()), cmdsToFree.data());
     }
 }
 
@@ -365,19 +387,23 @@ void Renderer::RenderVR(const Scene& scene, uint32_t viewIndex, VkImageView colo
         RebuildPipeline();
 
     FrameContext& frame = m_frames[m_currentFrame];
-    if (frame.vrDepthExtent.width != extent.width || frame.vrDepthExtent.height != extent.height)
+
+    if (frame.vrDepthImage == VK_NULL_HANDLE || frame.vrDepthExtent.width != extent.width ||
+        frame.vrDepthExtent.height != extent.height)
     {
         CreateVrDepthResources(frame, extent);
     }
 
-    vkResetCommandBuffer(frame.vrCmd, 0);
-    RecordVrCommandBuffer(frame, colorView, colorImage, depthView, depthImage, extent, scene, view, proj,
+    VkCommandBuffer cmd = frame.vrCmds[viewIndex];
+    vkResetCommandBuffer(cmd, 0);
+    RecordVrCommandBuffer(frame, cmd, colorView, colorImage, depthView, depthImage, extent, scene, view, proj,
                           camPos);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &frame.vrCmd;
+    submitInfo.pCommandBuffers = &cmd;
+
     vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
 }
 
@@ -462,24 +488,25 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView color
     vkEndCommandBuffer(cmd);
 }
 
-void Renderer::RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
-                                     VkImageView depthView, VkImage depthImage, VkExtent2D extent,
-                                     const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
-                                     const glm::vec3& camPos)
+void Renderer::RecordVrCommandBuffer(FrameContext& frame, VkCommandBuffer cmd, VkImageView colorView,
+                                     VkImage colorImage, VkImageView depthView, VkImage depthImage,
+                                     VkExtent2D extent, const Scene& scene, const glm::mat4& view,
+                                     const glm::mat4& proj, const glm::vec3& camPos)
 {
-    VkCommandBuffer cmd = frame.vrCmd;
+
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
     TransitionImageLayout(cmd, colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+
     if (depthImage != VK_NULL_HANDLE)
     {
         TransitionImageLayout(cmd, depthImage, VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
     }
-    else
+    else if (frame.vrDepthImage != VK_NULL_HANDLE)
     {
         TransitionImageLayout(cmd, frame.vrDepthImage, VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);

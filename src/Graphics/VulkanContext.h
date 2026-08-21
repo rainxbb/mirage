@@ -22,10 +22,12 @@ struct VulkanQueueIndices
 class VulkanContext
 {
 public:
-    VulkanContext(std::shared_ptr<Window> window);
+    VulkanContext(std::shared_ptr<Window> window, const std::vector<const char*>& xrInstanceExtensions,
+                  const std::vector<const char*>& xrDeviceExtensions);
     ~VulkanContext();
 
     void WaitIdle();
+    void Initialize(VkPhysicalDevice forcedPhysicalDevice = VK_NULL_HANDLE);
 
     VkInstance GetInstance() const { return m_instance; }
     VkPhysicalDevice GetPhysicalDevice() const { return m_physicalDevice; }
@@ -58,10 +60,14 @@ private:
 
     std::shared_ptr<Window> m_window;
 
+    std::vector<const char*> m_xrInstanceExtensions;
+    std::vector<const char*> m_xrDeviceExtensions;
+
     VkInstance m_instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
     VkSurfaceKHR m_surface = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+    VkPhysicalDevice m_forcedPhysicalDevice = VK_NULL_HANDLE;
     VkDevice m_device = VK_NULL_HANDLE;
 
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;

@@ -34,14 +34,13 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityF
     return VK_FALSE;
 }
 
-VulkanContext::VulkanContext(std::shared_ptr<Window> window) : m_window(window)
+VulkanContext::VulkanContext(std::shared_ptr<Window> window,
+                             const std::vector<const char*>& xrInstanceExtensions,
+                             const std::vector<const char*>& xrDeviceExtensions)
+    : m_window(window), m_xrInstanceExtensions(xrInstanceExtensions), m_xrDeviceExtensions(xrDeviceExtensions)
 {
     CreateInstance();
     CreateSurface();
-    PickPhysicalDevice();
-    CreateLogicalDevice();
-    CreateCommandPool();
-    CreateBindlessResources();
 }
 
 VulkanContext::~VulkanContext()
@@ -72,6 +71,15 @@ VulkanContext::~VulkanContext()
 }
 
 void VulkanContext::WaitIdle() { vkDeviceWaitIdle(m_device); }
+
+void VulkanContext::Initialize(VkPhysicalDevice forcedPhysicalDevice)
+{
+    m_forcedPhysicalDevice = forcedPhysicalDevice;
+    PickPhysicalDevice();
+    CreateLogicalDevice();
+    CreateCommandPool();
+    CreateBindlessResources();
+}
 
 void VulkanContext::CreateInstance()
 {
@@ -128,6 +136,17 @@ void VulkanContext::CreateSurface() { m_surface = m_window->CreateVulkanSurface(
 
 void VulkanContext::PickPhysicalDevice()
 {
+    if (m_forcedPhysicalDevice != VK_NULL_HANDLE)
+    {
+        m_physicalDevice = m_forcedPhysicalDevice;
+        m_queueIndices = FindQueueFamilies(m_physicalDevice);
+        if (!m_queueIndices.IsComplete())
+        {
+            throw std::runtime_error("OpenXR forced physical device does not have required queue families!");
+        }
+        return;
+    }
+
     uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
     if (deviceCount == 0)
@@ -204,7 +223,13 @@ void VulkanContext::CreateLogicalDevice()
     createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
 
-    const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+    for (const char* ext : m_xrDeviceExtensions)
+    {
+        deviceExtensions.push_back(ext);
+    }
+
     createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
     createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
@@ -348,6 +373,11 @@ std::vector<const char*> VulkanContext::GetRequiredExtensions()
     char const* const* sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&sdlExtensionCount);
 
     std::vector<const char*> extensions(sdlExtensions, sdlExtensions + sdlExtensionCount);
+
+    for (const char* ext : m_xrInstanceExtensions)
+    {
+        extensions.push_back(ext);
+    }
 
     if (ENABLE_VALIDATION_LAYERS)
     {

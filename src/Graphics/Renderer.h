@@ -16,7 +16,7 @@ class Editor;
 struct FrameContext
 {
     VkCommandBuffer desktopCmd = VK_NULL_HANDLE;
-    VkCommandBuffer vrCmd = VK_NULL_HANDLE;
+    std::array<VkCommandBuffer, 2> vrCmds = {VK_NULL_HANDLE, VK_NULL_HANDLE};
     VkSemaphore imageAvailableSem = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSem = VK_NULL_HANDLE;
     VkFence inFlightFence = VK_NULL_HANDLE;
@@ -54,10 +54,10 @@ private:
                                     VkExtent2D extent, const Scene& scene, const glm::mat4& view,
                                     const glm::mat4& proj, const glm::vec3& camPos, Editor& editor);
 
-    void RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
-                               VkImageView depthView, VkImage depthImage, VkExtent2D extent,
-                               const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
-                               const glm::vec3& camPos);
+    void RecordVrCommandBuffer(FrameContext& frame, VkCommandBuffer cmd, VkImageView colorView,
+                               VkImage colorImage, VkImageView depthView, VkImage depthImage,
+                               VkExtent2D extent, const Scene& scene, const glm::mat4& view,
+                               const glm::mat4& proj, const glm::vec3& camPos);
 
     std::shared_ptr<VulkanContext> m_context;
     std::shared_ptr<Swapchain> m_swapchain;
