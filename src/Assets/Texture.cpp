@@ -7,13 +7,12 @@
 namespace Mirage
 {
 
-// Simple global counter for bindless indices (in a real engine, use a free-list)
-static uint32_t g_NextBindlessIndex = 0;
-
 Texture::Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryAllocator> allocator,
-                 const std::string& path)
+                 std::shared_ptr<BindlessAllocator> bindlessAlloc, const std::string& path)
     : m_context(context), m_allocator(allocator)
 {
+
+    m_bindlessIndex = bindlessAlloc->Allocate();
 
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -23,7 +22,6 @@ Texture::Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryA
     m_width = texWidth;
     m_height = texHeight;
     VkDeviceSize imageSize = texWidth * texHeight * 4;
-    m_bindlessIndex = g_NextBindlessIndex++;
 
     VkBuffer stagingBuffer;
     Allocation stagingAllocation;

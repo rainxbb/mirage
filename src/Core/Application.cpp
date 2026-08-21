@@ -1,6 +1,7 @@
 #include "Application.h"
 
 #include "../Assets/Mesh.h"
+#include "../Assets/Model.h"
 #include "../Assets/Texture.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -10,41 +11,9 @@
 namespace Mirage
 {
 
-void CreateProceduralCube(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices)
-{
-    vertices = {{{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-                {{1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-                {{1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-                {{-1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}}};
-    indices = {0, 1, 2, 2, 3, 0};
-}
-
-void CreateCheckerboardTexture(std::vector<uint8_t>& pixels, int& width, int& height)
-{
-    width = 256;
-    height = 256;
-    pixels.resize(width * height * 4);
-    for (int y = 0; y < height; ++y)
-    {
-        for (int x = 0; x < width; ++x)
-        {
-            int idx = (y * width + x) * 4;
-            bool white = ((x / 32) + (y / 32)) % 2 == 0;
-            uint8_t val = white ? 255 : 50;
-            pixels[idx + 0] = val;
-            pixels[idx + 1] = val;
-            pixels[idx + 2] = val;
-            pixels[idx + 3] = 255;
-        }
-    }
-}
-
 Application::Application() { Init(); }
 
-Application::~Application()
-{
-    m_context->WaitIdle();
-}
+Application::~Application() { m_context->WaitIdle(); }
 
 void Application::Init()
 {
@@ -97,50 +66,53 @@ void Application::LoadAssets()
         std::make_shared<Texture>(m_context, m_allocator, m_bindlessAlloc, texPixels.data(), texW, texH, 4);
 
     std::vector<Vertex> cubeVerts = {
-        // Front face
         {{-0.5f, -0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
         {{0.5f, -0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
         {{0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
         {{-0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        // Back face
+
         {{0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f}},
         {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f}},
         {{-0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f}},
         {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f}},
-        // Top face
+
         {{-0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
         {{0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
         {{0.5f, 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
         {{-0.5f, 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-        // Bottom face
+
         {{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
         {{0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
         {{0.5f, -0.5f, 0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
         {{-0.5f, -0.5f, 0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
-        // Right face
+
         {{0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
         {{0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
         {{0.5f, 0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
         {{0.5f, 0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-        // Left face
+
         {{-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
         {{-0.5f, -0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
         {{-0.5f, 0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
         {{-0.5f, 0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
     };
     std::vector<uint32_t> cubeIndices = {
-        0,  1,  2,  2,  3,  0,  // Front
-        4,  5,  6,  6,  7,  4,  // Back
-        8,  9,  10, 10, 11, 8,  // Top
-        12, 13, 14, 14, 15, 12, // Bottom
-        16, 17, 18, 18, 19, 16, // Right
-        20, 21, 22, 22, 23, 20  // Left
+        0,  1,  2,  2,  3,  0,
+        4,  5,  6,  6,  7,  4,
+        8,  9,  10, 10, 11, 8,
+        12, 13, 14, 14, 15, 12,
+        16, 17, 18, 18, 19, 16,
+        20, 21, 22, 22, 23, 20
     };
 
     auto cubeMesh = std::make_shared<Mesh>(m_context, m_allocator, cubeVerts, cubeIndices);
 
+    std::string modelPath = "assets/DamagedHelmet/DamagedHelmet.gltf";
+
+    auto helmetModel = std::make_shared<Model>(m_context, m_allocator, m_bindlessAlloc, modelPath);
+
     Entity e1;
-    e1.name = "Procedural Cube";
+    e1.name = "Cube";
     e1.transform.position = glm::vec3(0.0f, 0.0f, -2.0f);
     e1.mesh = cubeMesh;
     e1.albedoTexture = checkerTex;
@@ -153,6 +125,18 @@ void Application::LoadAssets()
     e2.mesh = cubeMesh;
     e2.albedoTexture = checkerTex;
     m_scene.AddEntity(e2);
+
+    int entityIndex = 0;
+    for (const auto& mesh : helmetModel->GetMeshes())
+    {
+        Entity e3;
+        e3.name = "Helmet_Part_" + std::to_string(entityIndex++);
+        e3.transform.position = glm::vec3(0.0f, 0.0f, -3.0f);
+        e3.transform.scale = glm::vec3(1.0f);
+        e3.mesh = mesh;
+        e3.albedoTexture = mesh->GetTexture();
+        m_scene.AddEntity(e3);
+    }
 }
 
 void Application::Update()

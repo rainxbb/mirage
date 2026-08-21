@@ -13,7 +13,7 @@ class Texture
 {
 public:
     Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryAllocator> allocator,
-            const std::string& path);
+            std::shared_ptr<BindlessAllocator> bindlessAlloc, const std::string& path);
     Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryAllocator> allocator,
             std::shared_ptr<BindlessAllocator> bindlessAlloc, const uint8_t* pixels, int width, int height,
             int channels);
