@@ -128,7 +128,7 @@ std::shared_ptr<Texture> Model::LoadMaterialTexture(aiMaterial* mat, aiTextureTy
         texturePath = directory + "/" + texturePath;
     }
 
-    std::cout << "[Model] Attempting to load texture: " << texturePath << "\n";
+    // std::cout << "[Model] Attempting to load texture: " << texturePath << "\n";
 
     for (const auto& loadedTex : m_textures)
     {

@@ -4,6 +4,7 @@
 #include "Pipeline.h"
 
 #include <array>
+#include <iostream>
 #include <stdexcept>
 
 namespace Mirage
@@ -443,10 +444,7 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView color
              camPos,
              glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)),
              glm::vec3(1.0f),
-             entity.albedoTexture
-                 ? entity.albedoTexture->GetBindlessIndex()
-                 : (entity.mesh && entity.mesh->GetTexture() ? entity.mesh->GetTexture()->GetBindlessIndex()
-                                                             : 0)};
+             entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0};
 
         vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pc), &pc);
@@ -538,10 +536,7 @@ void Renderer::RecordVrCommandBuffer(FrameContext& frame, VkImageView colorView,
              camPos,
              glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)),
              glm::vec3(1.0f),
-             entity.albedoTexture
-                 ? entity.albedoTexture->GetBindlessIndex()
-                 : (entity.mesh && entity.mesh->GetTexture() ? entity.mesh->GetTexture()->GetBindlessIndex()
-                                                             : 0)};
+             entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0};
 
         vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pc), &pc);

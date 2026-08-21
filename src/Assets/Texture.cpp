@@ -79,21 +79,8 @@ Texture::Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryA
     {
         throw std::runtime_error("Failed to create texture sampler!");
     }
-
-    VkDescriptorImageInfo imageInfo{};
-    imageInfo.imageView = m_imageView;
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkWriteDescriptorSet descriptorWrite{};
-    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.dstSet = m_context->GetBindlessDescriptorSet();
-    descriptorWrite.dstBinding = 0;
-    descriptorWrite.dstArrayElement = m_bindlessIndex;
-    descriptorWrite.descriptorCount = 1;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    descriptorWrite.pImageInfo = &imageInfo;
-
-    vkUpdateDescriptorSets(m_context->GetDevice(), 1, &descriptorWrite, 0, nullptr);
+    
+    UpdateBindlessDescriptors();
 }
 
 Texture::Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryAllocator> allocator,
@@ -161,16 +148,7 @@ Texture::Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryA
     samplerInfo.maxAnisotropy = 16.0f;
     vkCreateSampler(m_context->GetDevice(), &samplerInfo, nullptr, &m_sampler);
 
-    VkDescriptorImageInfo imageInfo{m_sampler, m_imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet descriptorWrite{};
-    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.dstSet = m_context->GetBindlessDescriptorSet();
-    descriptorWrite.dstBinding = 0;
-    descriptorWrite.dstArrayElement = m_bindlessIndex;
-    descriptorWrite.descriptorCount = 1;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    descriptorWrite.pImageInfo = &imageInfo;
-    vkUpdateDescriptorSets(m_context->GetDevice(), 1, &descriptorWrite, 0, nullptr);
+    UpdateBindlessDescriptors();
 }
 
 Texture::~Texture()
@@ -276,6 +254,37 @@ void Texture::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, 
     vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     m_context->EndSingleTimeCommands(commandBuffer);
+}
+
+void Texture::UpdateBindlessDescriptors()
+{
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageView = m_imageView;
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet imageWrite{};
+    imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    imageWrite.dstSet = m_context->GetBindlessDescriptorSet();
+    imageWrite.dstBinding = 0;
+    imageWrite.dstArrayElement = m_bindlessIndex;
+    imageWrite.descriptorCount = 1;
+    imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    imageWrite.pImageInfo = &imageInfo;
+
+    VkDescriptorImageInfo samplerInfo{};
+    samplerInfo.sampler = m_sampler;
+
+    VkWriteDescriptorSet samplerWrite{};
+    samplerWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    samplerWrite.dstSet = m_context->GetBindlessDescriptorSet();
+    samplerWrite.dstBinding = 2;
+    samplerWrite.dstArrayElement = 0;
+    samplerWrite.descriptorCount = 1;
+    samplerWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    samplerWrite.pImageInfo = &samplerInfo;
+
+    VkWriteDescriptorSet writes[] = {imageWrite, samplerWrite};
+    vkUpdateDescriptorSets(m_context->GetDevice(), 2, writes, 0, nullptr);
 }
 
 } // namespace Mirage

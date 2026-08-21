@@ -96,14 +96,9 @@ void Application::LoadAssets()
         {{-0.5f, 0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
         {{-0.5f, 0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
     };
-    std::vector<uint32_t> cubeIndices = {
-        0,  1,  2,  2,  3,  0,
-        4,  5,  6,  6,  7,  4,
-        8,  9,  10, 10, 11, 8,
-        12, 13, 14, 14, 15, 12,
-        16, 17, 18, 18, 19, 16,
-        20, 21, 22, 22, 23, 20
-    };
+    std::vector<uint32_t> cubeIndices = {0,  1,  2,  2,  3,  0,  4,  5,  6,  6,  7,  4,
+                                         8,  9,  10, 10, 11, 8,  12, 13, 14, 14, 15, 12,
+                                         16, 17, 18, 18, 19, 16, 20, 21, 22, 22, 23, 20};
 
     auto cubeMesh = std::make_shared<Mesh>(m_context, m_allocator, cubeVerts, cubeIndices);
 
@@ -126,17 +121,25 @@ void Application::LoadAssets()
     e2.albedoTexture = checkerTex;
     m_scene.AddEntity(e2);
 
-    int entityIndex = 0;
-    for (const auto& mesh : helmetModel->GetMeshes())
-    {
-        Entity e3;
-        e3.name = "Helmet_Part_" + std::to_string(entityIndex++);
-        e3.transform.position = glm::vec3(0.0f, 0.0f, -3.0f);
-        e3.transform.scale = glm::vec3(1.0f);
-        e3.mesh = mesh;
-        e3.albedoTexture = mesh->GetTexture();
-        m_scene.AddEntity(e3);
-    }
+    Entity e3;
+    e3.name = "Helmet";
+    e3.transform.position = glm::vec3(2.0f, 0.0f, -2.0f);
+    e3.transform.scale = glm::vec3(1.0f);
+    e3.mesh = helmetModel->GetMeshes().front();
+    e3.albedoTexture = helmetModel->GetMeshes().front()->GetTexture();
+    m_scene.AddEntity(e3);
+
+    // int entityIndex = 0;
+    // for (const auto& mesh : helmetModel->GetMeshes())
+    // {
+    //     Entity e3;
+    //     e3.name = "Helmet_Part_" + std::to_string(entityIndex++);
+    //     e3.transform.position = glm::vec3(2.0f, 0.0f, -2.0f);
+    //     e3.transform.scale = glm::vec3(1.0f);
+    //     e3.mesh = mesh;
+    //     e3.albedoTexture = mesh->GetTexture();
+    //     m_scene.AddEntity(e3);
+    // }
 }
 
 void Application::Update()

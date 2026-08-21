@@ -32,6 +32,7 @@ private:
     void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout,
                                VkImageLayout newLayout);
     void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    void UpdateBindlessDescriptors();
 
     std::shared_ptr<VulkanContext> m_context;
     std::shared_ptr<MemoryAllocator> m_allocator;
