@@ -100,7 +100,7 @@ std::shared_ptr<Mesh> Model::ProcessMesh(aiMesh* mesh, const aiScene* scene, con
     {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 
-        auto albedoTex = LoadMaterialTexture(material, aiTextureType_DIFFUSE, directory);
+        auto albedoTex = LoadMaterialTexture(material, directory);
         if (albedoTex)
         {
             newMesh->SetTexture(albedoTex);
@@ -110,42 +110,43 @@ std::shared_ptr<Mesh> Model::ProcessMesh(aiMesh* mesh, const aiScene* scene, con
     return newMesh;
 }
 
-std::shared_ptr<Texture> Model::LoadMaterialTexture(aiMaterial* mat, aiTextureType type,
-                                                    const std::string& directory)
+std::shared_ptr<Texture> Model::LoadMaterialTexture(aiMaterial* mat, const std::string& directory)
 {
-    if (mat->GetTextureCount(type) == 0)
+    aiTextureType typesToCheck[] = {aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE};
+
+    for (aiTextureType type : typesToCheck)
     {
-        return nullptr;
+        if (mat->GetTextureCount(type) > 0)
+        {
+            aiString str;
+            mat->GetTexture(type, 0, &str);
+            std::string texturePath = std::string(str.C_Str());
+
+            if (!std::filesystem::path(texturePath).is_absolute())
+            {
+                texturePath = directory + "/" + texturePath;
+            }
+
+            std::cout << "[Model] Found texture path: " << texturePath << "\n";
+
+            try
+            {
+                auto tex = std::make_shared<Texture>(m_context, m_allocator, m_bindlessAlloc, texturePath);
+                m_textures.push_back(tex);
+                std::cout << "[Model] Successfully loaded texture. Bindless Index: "
+                          << tex->GetBindlessIndex() << "\n";
+                return tex;
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << "[Model] Failed to load texture: " << texturePath << " | Error: " << e.what()
+                          << "\n";
+            }
+        }
     }
 
-    aiString str;
-    mat->GetTexture(type, 0, &str);
-
-    std::string texturePath = std::string(str.C_Str());
-
-    if (!std::filesystem::path(texturePath).is_absolute())
-    {
-        texturePath = directory + "/" + texturePath;
-    }
-
-    // std::cout << "[Model] Attempting to load texture: " << texturePath << "\n";
-
-    for (const auto& loadedTex : m_textures)
-    {
-        // use AssetManager with a string hash map, cache by path
-    }
-
-    try
-    {
-        auto tex = std::make_shared<Texture>(m_context, m_allocator, m_bindlessAlloc, texturePath);
-        m_textures.push_back(tex);
-        return tex;
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << "Warning: Failed to load texture: " << texturePath << " (" << e.what() << ")\n";
-        return nullptr;
-    }
+    std::cout << "[Model] No texture found in material.\n";
+    return nullptr;
 }
 
 } // namespace Mirage

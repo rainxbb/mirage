@@ -15,10 +15,13 @@ struct PushConstants {
     mat4 model;
     mat4 view;
     mat4 proj;
-    vec3 camPos;
-    vec3 lightDir;
-    vec3 lightColor;
+    vec4 camPos;
+    vec4 lightDir;
+    vec4 lightColor;
     uint albedoTexIndex;
+    float _pad1;
+    float _pad2;
+    float _pad3;
 };
 
 layout(push_constant) uniform constants {
@@ -27,12 +30,13 @@ layout(push_constant) uniform constants {
 
 void main() {
     vec3 normal = normalize(inNormal);
-    vec3 lightDir = normalize(-pc.lightDir);
+    
+    vec3 lightDir = normalize(-pc.lightDir.xyz);
     
     vec4 albedo = texture(sampler2D(textures[nonuniformEXT(inTexIndex)], samplers[0]), inUV);
     
     float diff = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = diff * pc.lightColor;
+    vec3 diffuse = diff * pc.lightColor.xyz;
     
     vec3 ambient = vec3(0.1);
     

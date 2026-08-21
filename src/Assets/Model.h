@@ -29,8 +29,7 @@ public:
 private:
     void ProcessNode(aiNode* node, const aiScene* scene, const std::string& directory);
     std::shared_ptr<Mesh> ProcessMesh(aiMesh* mesh, const aiScene* scene, const std::string& directory);
-    std::shared_ptr<Texture> LoadMaterialTexture(aiMaterial* mat, aiTextureType type,
-                                                 const std::string& directory);
+    std::shared_ptr<Texture> LoadMaterialTexture(aiMaterial* mat, const std::string& directory);
 
     std::shared_ptr<VulkanContext> m_context;
     std::shared_ptr<MemoryAllocator> m_allocator;

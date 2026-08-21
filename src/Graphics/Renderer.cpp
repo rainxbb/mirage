@@ -461,16 +461,29 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView color
     {
         struct PushConstants
         {
-            glm::mat4 model, view, proj;
-            glm::vec3 camPos, lightDir, lightColor;
+            glm::mat4 model;
+            glm::mat4 view;
+            glm::mat4 proj;
+            glm::vec4 camPos;
+            glm::vec4 lightDir;
+            glm::vec4 lightColor;
             uint32_t albedoTexIndex;
-        } pc{entity.transform.GetMatrix(),
-             view,
-             proj,
-             camPos,
-             glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)),
-             glm::vec3(1.0f),
-             entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0};
+            float _pad1;
+            float _pad2;
+            float _pad3;
+        };
+
+        PushConstants pc{};
+        pc.model = entity.transform.GetMatrix();
+        pc.view = view;
+        pc.proj = proj;
+        pc.camPos = glm::vec4(camPos, 1.0f);
+        pc.lightDir = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 1.0f);
+        pc.lightColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        pc.albedoTexIndex = entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0;
+        pc._pad1 = 0.0f;
+        pc._pad2 = 0.0f;
+        pc._pad3 = 0.0f;
 
         vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pc), &pc);
@@ -554,16 +567,29 @@ void Renderer::RecordVrCommandBuffer(FrameContext& frame, VkCommandBuffer cmd, V
     {
         struct PushConstants
         {
-            glm::mat4 model, view, proj;
-            glm::vec3 camPos, lightDir, lightColor;
+            glm::mat4 model;
+            glm::mat4 view;
+            glm::mat4 proj;
+            glm::vec4 camPos;
+            glm::vec4 lightDir;
+            glm::vec4 lightColor;
             uint32_t albedoTexIndex;
-        } pc{entity.transform.GetMatrix(),
-             view,
-             proj,
-             camPos,
-             glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)),
-             glm::vec3(1.0f),
-             entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0};
+            float _pad1;
+            float _pad2;
+            float _pad3;
+        };
+
+        PushConstants pc{};
+        pc.model = entity.transform.GetMatrix();
+        pc.view = view;
+        pc.proj = proj;
+        pc.camPos = glm::vec4(camPos, 1.0f);
+        pc.lightDir = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 1.0f);
+        pc.lightColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        pc.albedoTexIndex = entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0;
+        pc._pad1 = 0.0f;
+        pc._pad2 = 0.0f;
+        pc._pad3 = 0.0f;
 
         vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pc), &pc);

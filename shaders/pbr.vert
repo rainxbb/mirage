@@ -14,10 +14,13 @@ struct PushConstants {
     mat4 model;
     mat4 view;
     mat4 proj;
-    vec3 camPos;
-    vec3 lightDir;
-    vec3 lightColor;
+    vec4 camPos;
+    vec4 lightDir;
+    vec4 lightColor;
     uint albedoTexIndex;
+    float _pad1;
+    float _pad2;
+    float _pad3;
 };
 
 layout(push_constant) uniform constants {

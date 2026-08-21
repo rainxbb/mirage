@@ -13,6 +13,7 @@ Texture::Texture(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryA
 {
 
     m_bindlessIndex = bindlessAlloc->Allocate();
+    std::cout << "[Texture] Allocated Bindless Index: " << m_bindlessIndex << " for " << path << "\n";
 
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -258,6 +259,8 @@ void Texture::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, 
 
 void Texture::UpdateBindlessDescriptors()
 {
+    std::cout << "[Texture] Updating descriptor set at Bindless Index: " << m_bindlessIndex << "\n";
+
     VkDescriptorImageInfo imageInfo{};
     imageInfo.imageView = m_imageView;
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
