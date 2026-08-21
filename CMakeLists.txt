@@ -12,6 +12,7 @@ find_package(Vulkan REQUIRED)
 add_subdirectory(third_party/glm)
 add_subdirectory(third_party/openxr)
 add_subdirectory(third_party/sdl3)
+add_subdirectory(third_party/imguizmo)
 
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
@@ -50,11 +51,13 @@ target_link_libraries(imgui
     SDL3::SDL3
 )
 
+target_link_libraries(imguizmo PUBLIC imgui)
+
 file(GLOB_RECURSE SRC_FILES src/*.cpp)
 
 add_executable(Mirage ${SRC_FILES})
 
-target_link_libraries(Mirage PRIVATE glm stb openxr_loader assimp::assimp Vulkan::Vulkan SDL3::SDL3 imgui)
+target_link_libraries(Mirage PRIVATE glm stb openxr_loader assimp::assimp Vulkan::Vulkan SDL3::SDL3 imgui imguizmo)
 
 find_program(GLSL_VALIDATOR glslangValidator HINTS Vulkan::glslangValidator /usr/bin /usr/local/bin ${VULKAN_SDK}/Bin/ ${VULKAN_SDK}/Bin32/)
 if(NOT GLSL_VALIDATOR)
