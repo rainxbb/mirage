@@ -20,11 +20,12 @@ public:
 
     void NewFrame();
     void DrawUI(Scene& scene, const glm::mat4& view, const glm::mat4& proj, uint32_t viewportWidth,
-                uint32_t viewportHeight);
+                uint32_t viewportHeight, VkExtent2D& outViewportSize, VkDescriptorSet viewportTexture);
     void EndFrame();
     void RecordDrawData(VkCommandBuffer cmd);
 
     bool IsUIVisible() const { return m_showUI; }
+    VkExtent2D GetViewportSize() const { return m_viewportSize; }
 
 private:
     void HandleInput();
@@ -33,6 +34,8 @@ private:
     void DrawInspector(Scene& scene);
     void DrawStatsOverlay(Scene& scene);
     void DrawContentBrowser();
+    void DrawSceneViewport(VkDescriptorSet viewportTexture, VkExtent2D& outViewportSize, Scene& scene,
+                           const glm::mat4& view, const glm::mat4& proj);
 
     void LoadDroppedModel(Scene& scene, const std::string& path);
 
@@ -41,6 +44,8 @@ private:
     std::shared_ptr<MemoryAllocator> m_allocator;
     std::shared_ptr<BindlessAllocator> m_bindlessAlloc;
     VkDescriptorPool m_imguiPool = VK_NULL_HANDLE;
+
+    VkExtent2D m_viewportSize{0, 0};
 
     bool m_showUI = true;
 

@@ -204,12 +204,22 @@ void Application::Update(float dt)
     if (m_window->IsKeyDown(SDL_SCANCODE_ESCAPE))
         m_window->RequestClose();
 
+    m_editor->NewFrame();
+
+    VkExtent2D viewportSize = m_editor->GetViewportSize();
+    if (viewportSize.width == 0 || viewportSize.height == 0)
+    {
+        viewportSize = m_swapchain->GetExtent();
+    }
+
+    float aspect = (float)viewportSize.width / (float)viewportSize.height;
+    glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
+    proj[1][1] *= -1.0f;
+
     glm::mat4 view =
         glm::lookAt(m_camPos, m_camPos + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::mat4 proj = glm::perspective(glm::radians(45.0f),
-                                      (float)m_swapchain->GetExtent().width / m_swapchain->GetExtent().height,
-                                      0.1f, 100.0f);
-    proj[1][1] *= -1;
+
+    bool isVrMirror = !m_editor->IsUIVisible() && m_xrContext && m_xrContext->IsSessionRunning();
 
     if (m_xrContext && m_xrContext->IsSessionRunning())
     {
@@ -219,17 +229,32 @@ void Application::Update(float dt)
                 [&](uint32_t viewIndex, VkImageView colorView, VkImage colorImage, VkImageView depthView,
                     VkImage depthImage, VkExtent2D extent)
                 {
-                    auto& xrView = m_xrContext->GetViews()[viewIndex];
+                    auto& xrViews = m_xrContext->GetViews();
+
+                    if (isVrMirror && viewIndex == 0)
+                    {
+                        view = xrViews[0].view;
+                        proj = xrViews[0].projection;
+                    }
+
                     m_renderer->RenderVR(m_scene, viewIndex, colorView, colorImage, depthView, depthImage,
-                                         extent, xrView.view, xrView.projection, m_camPos);
+                                         extent, xrViews[viewIndex].view, xrViews[viewIndex].projection,
+                                         m_camPos);
                 });
             m_xrContext->EndFrame();
         }
     }
 
-    m_editor->NewFrame();
-    m_editor->DrawUI(m_scene, view, proj, m_swapchain->GetExtent().width, m_swapchain->GetExtent().height);
+    m_editor->DrawUI(m_scene, view, proj, m_swapchain->GetExtent().width, m_swapchain->GetExtent().height,
+                     viewportSize, m_renderer->GetViewportDescriptorSet());
+
+    if (viewportSize.width > 0 && viewportSize.height > 0)
+    {
+        m_renderer->ResizeViewportTarget(viewportSize);
+    }
+
     m_editor->EndFrame();
+
     m_renderer->RenderDesktop(m_scene, view, proj, m_camPos, *m_editor);
 }
 

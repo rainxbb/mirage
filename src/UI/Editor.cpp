@@ -173,7 +173,7 @@ void Editor::NewFrame()
 }
 
 void Editor::DrawUI(Scene& scene, const glm::mat4& view, const glm::mat4& proj, uint32_t viewportWidth,
-                    uint32_t viewportHeight)
+                    uint32_t viewportHeight, VkExtent2D& outViewportSize, VkDescriptorSet viewportTexture)
 {
     if (!m_showUI)
         return;
@@ -220,6 +220,7 @@ void Editor::DrawUI(Scene& scene, const glm::mat4& view, const glm::mat4& proj, 
         ImGui::DockBuilderDockWindow("Inspector", dock_id_right);
         ImGui::DockBuilderDockWindow("Content Browser", dock_id_bottom);
         ImGui::DockBuilderDockWindow("Stats Overlay", dock_main_id);
+        ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
 
         ImGui::DockBuilderFinish(dockspace_id);
     }
@@ -231,6 +232,7 @@ void Editor::DrawUI(Scene& scene, const glm::mat4& view, const glm::mat4& proj, 
     DrawInspector(scene);
     DrawContentBrowser();
     DrawStatsOverlay(scene);
+    DrawSceneViewport(viewportTexture, outViewportSize, scene, view, proj);
 
     if (m_selectedEntityIndex >= 0 && m_selectedEntityIndex < scene.GetEntities().size())
     {
@@ -249,6 +251,48 @@ void Editor::DrawUI(Scene& scene, const glm::mat4& view, const glm::mat4& proj, 
                            selectedEntity.transform.position, skew, perspective);
         }
     }
+}
+
+void Editor::DrawSceneViewport(VkDescriptorSet viewportTexture, VkExtent2D& outViewportSize, Scene& scene,
+                               const glm::mat4& view, const glm::mat4& proj)
+{
+    ImGui::Begin("Scene Viewport");
+
+    ImVec2 availSize = ImGui::GetContentRegionAvail();
+    m_viewportSize.width = std::max(1u, (uint32_t)availSize.x);
+    m_viewportSize.height = std::max(1u, (uint32_t)availSize.y);
+    outViewportSize = m_viewportSize;
+
+    ImVec2 viewportPos = ImGui::GetCursorScreenPos();
+
+    if (viewportTexture && m_viewportSize.width > 0 && m_viewportSize.height > 0)
+    {
+        ImGui::Image(viewportTexture, ImVec2(m_viewportSize.width, m_viewportSize.height), ImVec2(0, 0),
+                     ImVec2(1, 1));
+
+        ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+        ImGuizmo::SetRect(viewportPos.x, viewportPos.y, m_viewportSize.width, m_viewportSize.height);
+        ImGuizmo::AllowAxisFlip(true);
+
+        if (m_selectedEntityIndex >= 0 && m_selectedEntityIndex < scene.GetEntities().size())
+        {
+            Entity& selectedEntity = scene.GetEntities()[m_selectedEntityIndex];
+            ImGuizmo::MODE mode = ImGuizmo::LOCAL;
+            ImGuizmo::OPERATION op = (ImGuizmo::OPERATION)m_gizmoOperation;
+            glm::mat4 model = selectedEntity.transform.GetMatrix();
+
+            if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
+                                     glm::value_ptr(model)))
+            {
+                glm::vec3 skew;
+                glm::vec4 perspective;
+                glm::decompose(model, selectedEntity.transform.scale, selectedEntity.transform.rotation,
+                               selectedEntity.transform.position, skew, perspective);
+            }
+        }
+    }
+
+    ImGui::End();
 }
 
 void Editor::DrawMenuBar()

@@ -85,6 +85,9 @@ Renderer::Renderer(std::shared_ptr<VulkanContext> context, std::shared_ptr<Swapc
 
     CreateSyncObjects();
     CreateDesktopDepthResources(swapchain->GetExtent());
+    CreateViewportResources();
+
+    ResizeViewportTarget({1280, 720});
 
     m_shaderMgr->SetReloadCallback([this]() { MarkPipelinesDirty(); });
 }
@@ -105,6 +108,25 @@ Renderer::~Renderer()
     if (m_desktopDepthImage)
         vkDestroyImage(m_context->GetDevice(), m_desktopDepthImage, nullptr);
     m_allocator->Free(m_desktopDepthAllocation);
+
+    if (m_viewportTarget.colorImageView)
+        vkDestroyImageView(m_context->GetDevice(), m_viewportTarget.colorImageView, nullptr);
+    if (m_viewportTarget.colorImage)
+        vkDestroyImage(m_context->GetDevice(), m_viewportTarget.colorImage, nullptr);
+    m_allocator->Free(m_viewportTarget.colorAllocation);
+
+    if (m_viewportTarget.depthImageView)
+        vkDestroyImageView(m_context->GetDevice(), m_viewportTarget.depthImageView, nullptr);
+    if (m_viewportTarget.depthImage)
+        vkDestroyImage(m_context->GetDevice(), m_viewportTarget.depthImage, nullptr);
+    m_allocator->Free(m_viewportTarget.depthAllocation);
+
+    if (m_viewportSampler)
+        vkDestroySampler(m_context->GetDevice(), m_viewportSampler, nullptr);
+    if (m_viewportDescriptorPool)
+        vkDestroyDescriptorPool(m_context->GetDevice(), m_viewportDescriptorPool, nullptr);
+    if (m_viewportDescriptorSetLayout)
+        vkDestroyDescriptorSetLayout(m_context->GetDevice(), m_viewportDescriptorSetLayout, nullptr);
 
     std::vector<VkCommandBuffer> cmdsToFree;
     cmdsToFree.reserve(MAX_FRAMES_IN_FLIGHT * 3);
@@ -325,6 +347,125 @@ void Renderer::CreateSyncObjects()
     }
 }
 
+void Renderer::CreateViewportResources()
+{
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    vkCreateSampler(m_context->GetDevice(), &samplerInfo, nullptr, &m_viewportSampler);
+
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &binding;
+    vkCreateDescriptorSetLayout(m_context->GetDevice(), &layoutInfo, nullptr, &m_viewportDescriptorSetLayout);
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    vkCreateDescriptorPool(m_context->GetDevice(), &poolInfo, nullptr, &m_viewportDescriptorPool);
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = m_viewportDescriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &m_viewportDescriptorSetLayout;
+    vkAllocateDescriptorSets(m_context->GetDevice(), &allocInfo, &m_viewportDescriptorSet);
+}
+
+void Renderer::ResizeViewportTarget(VkExtent2D extent)
+{
+    if (extent.width == 0 || extent.height == 0)
+        return;
+    if (m_viewportTarget.extent.width == extent.width && m_viewportTarget.extent.height == extent.height)
+        return;
+
+    m_context->WaitIdle();
+
+    if (m_viewportTarget.colorImageView)
+        vkDestroyImageView(m_context->GetDevice(), m_viewportTarget.colorImageView, nullptr);
+    if (m_viewportTarget.colorImage)
+        vkDestroyImage(m_context->GetDevice(), m_viewportTarget.colorImage, nullptr);
+    m_allocator->Free(m_viewportTarget.colorAllocation);
+
+    if (m_viewportTarget.depthImageView)
+        vkDestroyImageView(m_context->GetDevice(), m_viewportTarget.depthImageView, nullptr);
+    if (m_viewportTarget.depthImage)
+        vkDestroyImage(m_context->GetDevice(), m_viewportTarget.depthImage, nullptr);
+    m_allocator->Free(m_viewportTarget.depthAllocation);
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = extent.width;
+    imageInfo.extent.height = extent.height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage =
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    vkCreateImage(m_context->GetDevice(), &imageInfo, nullptr, &m_viewportTarget.colorImage);
+    m_viewportTarget.colorAllocation =
+        m_allocator->AllocateImage(m_viewportTarget.colorImage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_viewportTarget.colorImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    vkCreateImageView(m_context->GetDevice(), &viewInfo, nullptr, &m_viewportTarget.colorImageView);
+
+    imageInfo.format = VK_FORMAT_D32_SFLOAT;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    vkCreateImage(m_context->GetDevice(), &imageInfo, nullptr, &m_viewportTarget.depthImage);
+    m_viewportTarget.depthAllocation =
+        m_allocator->AllocateImage(m_viewportTarget.depthImage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    viewInfo.image = m_viewportTarget.depthImage;
+    viewInfo.format = VK_FORMAT_D32_SFLOAT;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    vkCreateImageView(m_context->GetDevice(), &viewInfo, nullptr, &m_viewportTarget.depthImageView);
+
+    m_viewportTarget.extent = extent;
+
+    VkDescriptorImageInfo imgInfo{};
+    imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imgInfo.imageView = m_viewportTarget.colorImageView;
+    imgInfo.sampler = m_viewportSampler;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = m_viewportDescriptorSet;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imgInfo;
+    vkUpdateDescriptorSets(m_context->GetDevice(), 1, &write, 0, nullptr);
+}
+
 void Renderer::RenderDesktop(const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
                              const glm::vec3& camPos, Editor& editor)
 {
@@ -407,31 +548,32 @@ void Renderer::RenderVR(const Scene& scene, uint32_t viewIndex, VkImageView colo
     vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
 }
 
-void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
-                                          VkExtent2D extent, const Scene& scene, const glm::mat4& view,
-                                          const glm::mat4& proj, const glm::vec3& camPos, Editor& editor)
+void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView swapchainView,
+                                          VkImage swapchainImage, VkExtent2D swapchainExtent,
+                                          const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
+                                          const glm::vec3& camPos, Editor& editor)
 {
     VkCommandBuffer cmd = frame.desktopCmd;
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
-    TransitionImageLayout(cmd, colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
+    TransitionImageLayout(cmd, m_viewportTarget.colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
-    TransitionImageLayout(cmd, m_desktopDepthImage, VK_IMAGE_LAYOUT_UNDEFINED,
+    TransitionImageLayout(cmd, m_viewportTarget.depthImage, VK_IMAGE_LAYOUT_UNDEFINED,
                           VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
 
     VkRenderingAttachmentInfo colorAttachment{};
     colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    colorAttachment.imageView = colorView;
+    colorAttachment.imageView = m_viewportTarget.colorImageView;
     colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.clearValue.color = {0.05f, 0.05f, 0.05f, 1.0f};
+    colorAttachment.clearValue.color = {0.1f, 0.1f, 0.1f, 1.0f};
 
     VkRenderingAttachmentInfo depthAttachment{};
     depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depthAttachment.imageView = m_desktopDepthImageView;
+    depthAttachment.imageView = m_viewportTarget.depthImageView;
     depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -439,7 +581,7 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView color
 
     VkRenderingInfo renderingInfo{};
     renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    renderingInfo.renderArea = {{0, 0}, extent};
+    renderingInfo.renderArea = {{0, 0}, m_viewportTarget.extent};
     renderingInfo.layerCount = 1;
     renderingInfo.colorAttachmentCount = 1;
     renderingInfo.pColorAttachments = &colorAttachment;
@@ -447,12 +589,14 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView color
 
     vkCmdBeginRendering(cmd, &renderingInfo);
 
-    VkViewport viewport{0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f};
+    VkViewport viewport{
+        0.0f, 0.0f, (float)m_viewportTarget.extent.width, (float)m_viewportTarget.extent.height, 0.0f, 1.0f};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
-    VkRect2D scissor{{0, 0}, extent};
+    VkRect2D scissor{{0, 0}, m_viewportTarget.extent};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+
     VkDescriptorSet bindlessSet = m_context->GetBindlessDescriptorSet();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &bindlessSet, 0,
                             nullptr);
@@ -487,11 +631,42 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView color
             entity.mesh->Draw(cmd);
     }
 
+    vkCmdEndRendering(cmd);
+
+    TransitionImageLayout(cmd, m_viewportTarget.colorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, false);
+
+    TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+
+    VkRenderingAttachmentInfo imguiColorAttachment{};
+    imguiColorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    imguiColorAttachment.imageView = swapchainView;
+    imguiColorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imguiColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    imguiColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    imguiColorAttachment.clearValue.color = {0.05f, 0.05f, 0.05f, 1.0f};
+
+    VkRenderingInfo imguiRenderingInfo{};
+    imguiRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    imguiRenderingInfo.renderArea = {{0, 0}, swapchainExtent};
+    imguiRenderingInfo.layerCount = 1;
+    imguiRenderingInfo.colorAttachmentCount = 1;
+    imguiRenderingInfo.pColorAttachments = &imguiColorAttachment;
+
+    vkCmdBeginRendering(cmd, &imguiRenderingInfo);
+
+    VkViewport imguiViewport{0.0f, 0.0f, (float)swapchainExtent.width, (float)swapchainExtent.height,
+                             0.0f, 1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &imguiViewport);
+    VkRect2D imguiScissor{{0, 0}, swapchainExtent};
+    vkCmdSetScissor(cmd, 0, 1, &imguiScissor);
+
     editor.RecordDrawData(cmd);
 
     vkCmdEndRendering(cmd);
 
-    TransitionImageLayout(cmd, colorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                           VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, false);
 
     vkEndCommandBuffer(cmd);

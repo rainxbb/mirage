@@ -27,6 +27,19 @@ struct FrameContext
     VkExtent2D vrDepthExtent{0, 0};
 };
 
+struct ViewportRenderTarget
+{
+    VkImage colorImage = VK_NULL_HANDLE;
+    VkImageView colorImageView = VK_NULL_HANDLE;
+    Allocation colorAllocation;
+
+    VkImage depthImage = VK_NULL_HANDLE;
+    VkImageView depthImageView = VK_NULL_HANDLE;
+    Allocation depthAllocation;
+
+    VkExtent2D extent{0, 0};
+};
+
 class Renderer
 {
 public:
@@ -36,6 +49,9 @@ public:
 
     void InitPipeline();
     void MarkPipelinesDirty();
+
+    void ResizeViewportTarget(VkExtent2D extent);
+    VkDescriptorSet GetViewportDescriptorSet() const { return m_viewportDescriptorSet; }
 
     void RenderDesktop(const Scene& scene, const glm::mat4& view, const glm::mat4& proj,
                        const glm::vec3& camPos, Editor& editor);
@@ -49,6 +65,7 @@ private:
     void CreateVrDepthResources(FrameContext& frame, VkExtent2D extent);
     void CreateSyncObjects();
     void RebuildPipeline();
+    void CreateViewportResources();
 
     void RecordDesktopCommandBuffer(FrameContext& frame, VkImageView colorView, VkImage colorImage,
                                     VkExtent2D extent, const Scene& scene, const glm::mat4& view,
@@ -73,7 +90,13 @@ private:
     VkImageView m_desktopDepthImageView = VK_NULL_HANDLE;
     VkExtent2D m_desktopDepthExtent{0, 0};
 
-    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+    ViewportRenderTarget m_viewportTarget;
+    VkDescriptorPool m_viewportDescriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_viewportDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorSet m_viewportDescriptorSet = VK_NULL_HANDLE;
+    VkSampler m_viewportSampler = VK_NULL_HANDLE;
+
+    static constexpr int MAX_FRAMES_IN_FLIGHT = 3;
     std::array<FrameContext, MAX_FRAMES_IN_FLIGHT> m_frames;
     uint32_t m_currentFrame = 0;
 };
