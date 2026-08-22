@@ -18,15 +18,15 @@ namespace Mirage
 class Application
 {
 public:
-    Application();
+    Application(bool forceDesktop = false);
     ~Application();
 
     void Run();
 
 private:
-    void Init();
+    void Init(bool forceDesktop);
     void LoadAssets();
-    void Update();
+    void Update(float dt);
 
     std::shared_ptr<Window> m_window;
     std::shared_ptr<VulkanContext> m_context;
@@ -41,7 +41,7 @@ private:
     Scene m_scene;
 
     glm::vec3 m_camPos{0.0f, 1.0f, 3.0f};
-    float m_yaw = -90.0f, m_pitch = 0.0f;
+    bool m_forceDesktop;
 };
 
 } // namespace Mirage

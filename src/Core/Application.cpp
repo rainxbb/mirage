@@ -11,7 +11,7 @@
 namespace Mirage
 {
 
-Application::Application() { Init(); }
+Application::Application(bool forceDesktop) : m_forceDesktop(forceDesktop) { Init(forceDesktop); }
 
 Application::~Application()
 {
@@ -35,50 +35,50 @@ Application::~Application()
     m_window.reset();
 }
 
-void Application::Init()
+void Application::Init(bool forceDesktop)
 {
-    m_window = std::make_shared<Window>("Mirage VR Sandbox", 1280, 720);
+    m_window = std::make_shared<Window>("Mirage", 1920, 1080);
 
     m_xrContext = std::make_shared<OpenXRContext>();
     std::vector<const char*> xrInstExts;
     std::vector<const char*> xrDevExts;
 
-    try
+    if (!forceDesktop)
     {
-        m_xrContext->CreateInstance();
-
-        xrInstExts = m_xrContext->GetRequiredVulkanInstanceExtensions();
-        xrDevExts = m_xrContext->GetRequiredVulkanDeviceExtensions();
-
-        m_context = std::make_shared<VulkanContext>(m_window, xrInstExts, xrDevExts);
-
-        VkPhysicalDevice xrPhysicalDevice =
-            m_xrContext->GetRequiredVulkanPhysicalDevice(m_context->GetInstance());
-
-        m_context->Initialize(xrPhysicalDevice);
-
-        m_xrContext->CreateSession(m_context);
-        m_xrContext->CreateReferenceSpace();
-        m_xrContext->CreateViewConfigurations();
-        m_xrContext->CreateSwapchains();
-
-        std::cout << "OpenXR Initialized successfully.\n";
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << "OpenXR failed to initialize (running in Desktop-only mode): " << e.what() << "\n";
-        m_xrContext = nullptr;
-
-        if (!m_context)
+        try
         {
+            m_xrContext->CreateInstance();
+            xrInstExts = m_xrContext->GetRequiredVulkanInstanceExtensions();
+            xrDevExts = m_xrContext->GetRequiredVulkanDeviceExtensions();
+
+            m_context = std::make_shared<VulkanContext>(m_window, xrInstExts, xrDevExts);
+            VkPhysicalDevice xrPhysicalDevice =
+                m_xrContext->GetRequiredVulkanPhysicalDevice(m_context->GetInstance());
+            m_context->Initialize(xrPhysicalDevice);
+
+            m_xrContext->CreateSession(m_context);
+            m_xrContext->CreateReferenceSpace();
+            m_xrContext->CreateViewConfigurations();
+            m_xrContext->CreateSwapchains();
+
+            std::cout << "OpenXR Initialized successfully.\n";
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "OpenXR failed to initialize (Desktop-only): " << e.what() << "\n";
+            m_xrContext = nullptr;
+
             std::vector<const char*> emptyExts;
             m_context = std::make_shared<VulkanContext>(m_window, emptyExts, emptyExts);
             m_context->Initialize();
         }
-        else
-        {
-            m_context->Initialize();
-        }
+    }
+    else
+    {
+        std::vector<const char*> emptyExts;
+        m_context = std::make_shared<VulkanContext>(m_window, emptyExts, emptyExts);
+        m_context->Initialize();
+        m_xrContext = nullptr;
     }
 
     m_swapchain = std::make_shared<Swapchain>(m_context, m_window);
@@ -89,7 +89,8 @@ void Application::Init()
     m_renderer = std::make_shared<Renderer>(m_context, m_swapchain, m_allocator, m_shaderMgr);
     m_renderer->InitPipeline();
 
-    m_editor = std::make_unique<Editor>(m_context, m_window, m_swapchain->GetImageFormat());
+    m_editor = std::make_unique<Editor>(m_context, m_window, m_swapchain->GetImageFormat(), m_allocator,
+                                        m_bindlessAlloc);
 
     LoadAssets();
 }
@@ -178,23 +179,12 @@ void Application::LoadAssets()
     e3.mesh = helmetModel->GetMeshes().front();
     e3.albedoTexture = helmetModel->GetMeshes().front()->GetTexture();
     m_scene.AddEntity(e3);
-
-    // int entityIndex = 0;
-    // for (const auto& mesh : helmetModel->GetMeshes())
-    // {
-    //     Entity e3;
-    //     e3.name = "Helmet_Part_" + std::to_string(entityIndex++);
-    //     e3.transform.position = glm::vec3(2.0f, 0.0f, -2.0f);
-    //     e3.transform.scale = glm::vec3(1.0f);
-    //     e3.mesh = mesh;
-    //     e3.albedoTexture = mesh->GetTexture();
-    //     m_scene.AddEntity(e3);
-    // }
 }
 
-void Application::Update()
+void Application::Update(float dt)
 {
-    float speed = 0.05f;
+    float speed = 5.0f * dt;
+
     if (m_window->IsKeyDown(SDL_SCANCODE_W))
         m_camPos += glm::vec3(0.0f, 0.0f, -speed);
     if (m_window->IsKeyDown(SDL_SCANCODE_S))
@@ -203,6 +193,14 @@ void Application::Update()
         m_camPos += glm::vec3(-speed, 0.0f, 0.0f);
     if (m_window->IsKeyDown(SDL_SCANCODE_D))
         m_camPos += glm::vec3(speed, 0.0f, 0.0f);
+    if (m_window->IsKeyDown(SDL_SCANCODE_SPACE))
+        m_camPos += glm::vec3(0.0f, speed, 0.0f);
+    if (m_window->IsKeyDown(SDL_SCANCODE_LCTRL))
+        m_camPos += glm::vec3(0.0f, -speed, 0.0f);
+    if (m_window->IsKeyDown(SDL_SCANCODE_SPACE))
+        m_camPos += glm::vec3(0.0f, speed, 0.0f);
+    if (m_window->IsKeyDown(SDL_SCANCODE_LCTRL))
+        m_camPos += glm::vec3(0.0f, -speed, 0.0f);
     if (m_window->IsKeyDown(SDL_SCANCODE_ESCAPE))
         m_window->RequestClose();
 
@@ -230,18 +228,27 @@ void Application::Update()
     }
 
     m_editor->NewFrame();
-    m_editor->DrawUI();
+    m_editor->DrawUI(m_scene, view, proj, m_swapchain->GetExtent().width, m_swapchain->GetExtent().height);
+    m_editor->EndFrame();
     m_renderer->RenderDesktop(m_scene, view, proj, m_camPos, *m_editor);
 }
 
 void Application::Run()
 {
+    uint64_t lastTime = SDL_GetPerformanceCounter();
+    double freq = (double)SDL_GetPerformanceFrequency();
+
     while (!m_window->ShouldClose())
     {
+        uint64_t currentTime = SDL_GetPerformanceCounter();
+        float dt = (float)((currentTime - lastTime) / freq);
+        lastTime = currentTime;
+        dt = std::min(dt, 0.1f);
+
         m_window->PollEvents();
         if (m_xrContext)
             m_xrContext->PollEvents();
-        Update();
+        Update(dt);
     }
 }
 

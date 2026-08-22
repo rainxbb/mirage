@@ -26,13 +26,21 @@ struct Transform
     }
 };
 
+struct Material
+{
+    glm::vec4 albedoTint{1.0f, 1.0f, 1.0f, 1.0f};
+    float metallic = 0.0f;
+    float roughness = 0.5f;
+    float _pad1 = 0.0f;
+};
+
 struct Entity
 {
     std::string name;
     Transform transform;
+    Material material;
     std::shared_ptr<Mesh> mesh;
     std::shared_ptr<Texture> albedoTexture;
-    uint32_t materialIndex = 0; // For bindless material lookup
 };
 
 class Scene

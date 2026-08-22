@@ -1,7 +1,11 @@
 #pragma once
 #include "../Core/Window.h"
+#include "../Graphics/BindlessAllocator.h"
+#include "../Graphics/MemoryAllocator.h"
 #include "../Graphics/VulkanContext.h"
+#include "../Scene/Scene.h"
 
+#include <glm/glm.hpp>
 #include <memory>
 
 namespace Mirage
@@ -10,17 +14,43 @@ namespace Mirage
 class Editor
 {
 public:
-    Editor(std::shared_ptr<VulkanContext> context, std::shared_ptr<Window> window, VkFormat swapchainFormat);
+    Editor(std::shared_ptr<VulkanContext> context, std::shared_ptr<Window> window, VkFormat swapchainFormat,
+           std::shared_ptr<MemoryAllocator> allocator, std::shared_ptr<BindlessAllocator> bindlessAlloc);
     ~Editor();
 
     void NewFrame();
-    void DrawUI();
+    void DrawUI(Scene& scene, const glm::mat4& view, const glm::mat4& proj, uint32_t viewportWidth,
+                uint32_t viewportHeight);
+    void EndFrame();
     void RecordDrawData(VkCommandBuffer cmd);
 
+    bool IsUIVisible() const { return m_showUI; }
+
 private:
+    void HandleInput();
+    void DrawMenuBar();
+    void DrawSceneHierarchy(Scene& scene);
+    void DrawInspector(Scene& scene);
+    void DrawStatsOverlay(Scene& scene);
+    void DrawContentBrowser();
+
+    void LoadDroppedModel(Scene& scene, const std::string& path);
+
     std::shared_ptr<VulkanContext> m_context;
     std::shared_ptr<Window> m_window;
+    std::shared_ptr<MemoryAllocator> m_allocator;
+    std::shared_ptr<BindlessAllocator> m_bindlessAlloc;
     VkDescriptorPool m_imguiPool = VK_NULL_HANDLE;
+
+    bool m_showUI = true;
+
+    bool m_tabPressedLastFrame = false;
+    bool m_wPressedLastFrame = false;
+    bool m_ePressedLastFrame = false;
+    bool m_rPressedLastFrame = false;
+
+    int m_selectedEntityIndex = -1;
+    int m_gizmoOperation = 0;
 };
 
 } // namespace Mirage

@@ -2,6 +2,8 @@
 
 #include "SDL3/SDL_vulkan.h"
 
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
 #include <stdexcept>
 
 namespace Mirage
@@ -38,6 +40,8 @@ void Window::PollEvents()
     SDL_Event event;
     while (SDL_PollEvent(&event))
     {
+        ImGui_ImplSDL3_ProcessEvent(&event);
+
         if (event.type == SDL_EVENT_QUIT)
         {
             m_shouldClose = true;
@@ -52,10 +56,7 @@ void Window::PollEvents()
 
 bool Window::ShouldClose() const { return m_shouldClose; }
 
-void Window::RequestClose()
-{
-    m_shouldClose = true;
-}
+void Window::RequestClose() { m_shouldClose = true; }
 
 void Window::GetFramebufferSize(int& width, int& height) const
 {
