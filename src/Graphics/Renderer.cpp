@@ -558,116 +558,198 @@ void Renderer::RecordDesktopCommandBuffer(FrameContext& frame, VkImageView swapc
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
-    TransitionImageLayout(cmd, m_viewportTarget.colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
-    TransitionImageLayout(cmd, m_viewportTarget.depthImage, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
-
-    VkRenderingAttachmentInfo colorAttachment{};
-    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    colorAttachment.imageView = m_viewportTarget.colorImageView;
-    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.clearValue.color = {0.1f, 0.1f, 0.1f, 1.0f};
-
-    VkRenderingAttachmentInfo depthAttachment{};
-    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depthAttachment.imageView = m_viewportTarget.depthImageView;
-    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAttachment.clearValue.depthStencil.depth = 1.0f;
-
-    VkRenderingInfo renderingInfo{};
-    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    renderingInfo.renderArea = {{0, 0}, m_viewportTarget.extent};
-    renderingInfo.layerCount = 1;
-    renderingInfo.colorAttachmentCount = 1;
-    renderingInfo.pColorAttachments = &colorAttachment;
-    renderingInfo.pDepthAttachment = &depthAttachment;
-
-    vkCmdBeginRendering(cmd, &renderingInfo);
-
-    VkViewport viewport{
-        0.0f, 0.0f, (float)m_viewportTarget.extent.width, (float)m_viewportTarget.extent.height, 0.0f, 1.0f};
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-    VkRect2D scissor{{0, 0}, m_viewportTarget.extent};
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
-
-    VkDescriptorSet bindlessSet = m_context->GetBindlessDescriptorSet();
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &bindlessSet, 0,
-                            nullptr);
-
-    for (const auto& entity : scene.GetEntities())
+    if (!editor.IsUIVisible())
     {
-        struct PushConstants
+        TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+        TransitionImageLayout(cmd, m_desktopDepthImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
+
+        VkRenderingAttachmentInfo colorAttachment{};
+        colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        colorAttachment.imageView = swapchainView;
+        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.clearValue.color = {0.1f, 0.1f, 0.1f, 1.0f};
+
+        VkRenderingAttachmentInfo depthAttachment{};
+        depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        depthAttachment.imageView = m_desktopDepthImageView;
+        depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.clearValue.depthStencil.depth = 1.0f;
+
+        VkRenderingInfo renderingInfo{};
+        renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        renderingInfo.renderArea = {{0, 0}, swapchainExtent};
+        renderingInfo.layerCount = 1;
+        renderingInfo.colorAttachmentCount = 1;
+        renderingInfo.pColorAttachments = &colorAttachment;
+        renderingInfo.pDepthAttachment = &depthAttachment;
+
+        vkCmdBeginRendering(cmd, &renderingInfo);
+
+        VkViewport viewport{0.0f, 0.0f, (float)swapchainExtent.width, (float)swapchainExtent.height,
+                            0.0f, 1.0f};
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        VkRect2D scissor{{0, 0}, swapchainExtent};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+        VkDescriptorSet bindlessSet = m_context->GetBindlessDescriptorSet();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &bindlessSet, 0,
+                                nullptr);
+
+        for (const auto& entity : scene.GetEntities())
         {
-            glm::mat4 model;
-            glm::mat4 view;
-            glm::mat4 proj;
-            uint32_t albedoTexIndex;
-            float metallic;
-            float roughness;
-            float _pad1;
-            glm::vec4 albedoTint;
-        };
+            struct PushConstants
+            {
+                glm::mat4 model;
+                glm::mat4 view;
+                glm::mat4 proj;
+                uint32_t albedoTexIndex;
+                float metallic;
+                float roughness;
+                float _pad1;
+                glm::vec4 albedoTint;
+            };
 
-        PushConstants pc{};
-        pc.model = entity.transform.GetMatrix();
-        pc.view = view;
-        pc.proj = proj;
-        pc.albedoTexIndex = entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0;
-        pc.metallic = entity.material.metallic;
-        pc.roughness = entity.material.roughness;
-        pc._pad1 = 0.0f;
-        pc.albedoTint = entity.material.albedoTint;
+            PushConstants pc{};
+            pc.model = entity.transform.GetMatrix();
+            pc.view = view;
+            pc.proj = proj;
+            pc.albedoTexIndex = entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0;
+            pc.metallic = entity.material.metallic;
+            pc.roughness = entity.material.roughness;
+            pc._pad1 = 0.0f;
+            pc.albedoTint = entity.material.albedoTint;
 
-        vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(pc), &pc);
-        if (entity.mesh)
-            entity.mesh->Draw(cmd);
+            vkCmdPushConstants(cmd, m_pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+            if (entity.mesh)
+                entity.mesh->Draw(cmd);
+        }
+        vkCmdEndRendering(cmd);
+
+        TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                              VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, false);
     }
+    else
+    {
+        TransitionImageLayout(cmd, m_viewportTarget.colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+        TransitionImageLayout(cmd, m_viewportTarget.depthImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, true);
 
-    vkCmdEndRendering(cmd);
+        VkRenderingAttachmentInfo colorAttachment{};
+        colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        colorAttachment.imageView = m_viewportTarget.colorImageView;
+        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.clearValue.color = {0.1f, 0.1f, 0.1f, 1.0f};
 
-    TransitionImageLayout(cmd, m_viewportTarget.colorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, false);
+        VkRenderingAttachmentInfo depthAttachment{};
+        depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        depthAttachment.imageView = m_viewportTarget.depthImageView;
+        depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.clearValue.depthStencil.depth = 1.0f;
 
-    TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+        VkRenderingInfo renderingInfo{};
+        renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        renderingInfo.renderArea = {{0, 0}, m_viewportTarget.extent};
+        renderingInfo.layerCount = 1;
+        renderingInfo.colorAttachmentCount = 1;
+        renderingInfo.pColorAttachments = &colorAttachment;
+        renderingInfo.pDepthAttachment = &depthAttachment;
 
-    VkRenderingAttachmentInfo imguiColorAttachment{};
-    imguiColorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    imguiColorAttachment.imageView = swapchainView;
-    imguiColorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imguiColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    imguiColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    imguiColorAttachment.clearValue.color = {0.05f, 0.05f, 0.05f, 1.0f};
+        vkCmdBeginRendering(cmd, &renderingInfo);
 
-    VkRenderingInfo imguiRenderingInfo{};
-    imguiRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    imguiRenderingInfo.renderArea = {{0, 0}, swapchainExtent};
-    imguiRenderingInfo.layerCount = 1;
-    imguiRenderingInfo.colorAttachmentCount = 1;
-    imguiRenderingInfo.pColorAttachments = &imguiColorAttachment;
+        VkViewport viewport{
+            0.0f, 0.0f, (float)m_viewportTarget.extent.width, (float)m_viewportTarget.extent.height,
+            0.0f, 1.0f};
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        VkRect2D scissor{{0, 0}, m_viewportTarget.extent};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    vkCmdBeginRendering(cmd, &imguiRenderingInfo);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
-    VkViewport imguiViewport{0.0f, 0.0f, (float)swapchainExtent.width, (float)swapchainExtent.height,
-                             0.0f, 1.0f};
-    vkCmdSetViewport(cmd, 0, 1, &imguiViewport);
-    VkRect2D imguiScissor{{0, 0}, swapchainExtent};
-    vkCmdSetScissor(cmd, 0, 1, &imguiScissor);
+        VkDescriptorSet bindlessSet = m_context->GetBindlessDescriptorSet();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &bindlessSet, 0,
+                                nullptr);
 
-    editor.RecordDrawData(cmd);
+        for (const auto& entity : scene.GetEntities())
+        {
+            struct PushConstants
+            {
+                glm::mat4 model;
+                glm::mat4 view;
+                glm::mat4 proj;
+                uint32_t albedoTexIndex;
+                float metallic;
+                float roughness;
+                float _pad1;
+                glm::vec4 albedoTint;
+            };
 
-    vkCmdEndRendering(cmd);
+            PushConstants pc{};
+            pc.model = entity.transform.GetMatrix();
+            pc.view = view;
+            pc.proj = proj;
+            pc.albedoTexIndex = entity.albedoTexture ? entity.albedoTexture->GetBindlessIndex() : 0;
+            pc.metallic = entity.material.metallic;
+            pc.roughness = entity.material.roughness;
+            pc._pad1 = 0.0f;
+            pc.albedoTint = entity.material.albedoTint;
 
-    TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, false);
+            vkCmdPushConstants(cmd, m_pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+            if (entity.mesh)
+                entity.mesh->Draw(cmd);
+        }
+
+        vkCmdEndRendering(cmd);
+
+        TransitionImageLayout(cmd, m_viewportTarget.colorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, false);
+
+        TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, false);
+
+        VkRenderingAttachmentInfo imguiColorAttachment{};
+        imguiColorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        imguiColorAttachment.imageView = swapchainView;
+        imguiColorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        imguiColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        imguiColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        imguiColorAttachment.clearValue.color = {0.05f, 0.05f, 0.05f, 1.0f};
+
+        VkRenderingInfo imguiRenderingInfo{};
+        imguiRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        imguiRenderingInfo.renderArea = {{0, 0}, swapchainExtent};
+        imguiRenderingInfo.layerCount = 1;
+        imguiRenderingInfo.colorAttachmentCount = 1;
+        imguiRenderingInfo.pColorAttachments = &imguiColorAttachment;
+
+        vkCmdBeginRendering(cmd, &imguiRenderingInfo);
+
+        VkViewport imguiViewport{0.0f, 0.0f, (float)swapchainExtent.width, (float)swapchainExtent.height,
+                                 0.0f, 1.0f};
+        vkCmdSetViewport(cmd, 0, 1, &imguiViewport);
+        VkRect2D imguiScissor{{0, 0}, swapchainExtent};
+        vkCmdSetScissor(cmd, 0, 1, &imguiScissor);
+
+        editor.RecordDrawData(cmd);
+
+        vkCmdEndRendering(cmd);
+
+        TransitionImageLayout(cmd, swapchainImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                              VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, false);
+    }
 
     vkEndCommandBuffer(cmd);
 }

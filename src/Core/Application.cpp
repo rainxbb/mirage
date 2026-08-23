@@ -274,7 +274,7 @@ void Application::Update(float dt)
                     if (isVrMirror && viewIndex == 0)
                     {
                         view = xrViews[0].view;
-                        proj = xrViews[0].projection;
+                        proj = proj;
                     }
 
                     m_renderer->RenderVR(m_scene, viewIndex, colorView, colorImage, depthView, depthImage,
