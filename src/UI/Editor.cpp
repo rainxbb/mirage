@@ -534,7 +534,7 @@ void Editor::DrawInspector(Scene& scene)
         Entity& entity = scene.GetEntities()[m_selectedEntityIndex];
 
         static char nameBuffer[128];
-        strncpy(nameBuffer, entity.name.c_str(), sizeof(nameBuffer) - 1);
+        strncpy_s(nameBuffer, entity.name.c_str(), sizeof(nameBuffer) - 1);
         nameBuffer[sizeof(nameBuffer) - 1] = '\0';
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 6.0f));

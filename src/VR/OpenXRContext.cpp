@@ -1,10 +1,8 @@
 #include "OpenXRContext.h"
-#define _CRT_SECURE_NO_WARNINGS
 #include <cstring>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -86,9 +84,9 @@ OpenXRContext::~OpenXRContext()
 void OpenXRContext::CreateInstance()
 {
     XrApplicationInfo appInfo{};
-    strncpy(appInfo.applicationName, "Mirage", XR_MAX_APPLICATION_NAME_SIZE - 1);
+    strncpy_s(appInfo.applicationName, "Mirage", XR_MAX_APPLICATION_NAME_SIZE - 1);
     appInfo.applicationVersion = 1;
-    strncpy(appInfo.engineName, "Mirage", XR_MAX_ENGINE_NAME_SIZE - 1);
+    strncpy_s(appInfo.engineName, "Mirage", XR_MAX_ENGINE_NAME_SIZE - 1);
     appInfo.engineVersion = 1;
     appInfo.apiVersion = XR_API_VERSION_1_0;
 
