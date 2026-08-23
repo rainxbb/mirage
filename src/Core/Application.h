@@ -1,10 +1,10 @@
 #pragma once
+#include "../Graphics/BindlessAllocator.h"
 #include "../Graphics/MemoryAllocator.h"
 #include "../Graphics/Renderer.h"
 #include "../Graphics/ShaderManager.h"
 #include "../Graphics/Swapchain.h"
 #include "../Graphics/VulkanContext.h"
-#include "../Graphics/BindlessAllocator.h"
 #include "../Scene/Scene.h"
 #include "../UI/Editor.h"
 #include "../VR/OpenXRContext.h"
@@ -41,6 +41,10 @@ private:
     Scene m_scene;
 
     glm::vec3 m_camPos{0.0f, 1.0f, 3.0f};
+    float m_camYaw = -90.0f;
+    float m_camPitch = 0.0f;
+    float m_camSpeed = 5.0f;
+    bool m_isRightMouseDown = false;
     bool m_forceDesktop;
 };
 

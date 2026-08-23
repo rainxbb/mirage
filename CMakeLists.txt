@@ -57,6 +57,8 @@ file(GLOB_RECURSE SRC_FILES src/*.cpp)
 
 add_executable(Mirage ${SRC_FILES})
 
+target_include_directories(Mirage PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/font-awesome)
+
 target_link_libraries(Mirage PRIVATE glm stb openxr_loader assimp::assimp Vulkan::Vulkan SDL3::SDL3 imgui imguizmo)
 
 find_program(GLSL_VALIDATOR glslangValidator HINTS Vulkan::glslangValidator /usr/bin /usr/local/bin ${VULKAN_SDK}/Bin/ ${VULKAN_SDK}/Bin32/)

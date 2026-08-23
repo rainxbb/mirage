@@ -3,6 +3,7 @@
 #include "../Assets/Mesh.h"
 #include "../Assets/Model.h"
 #include "../Assets/Texture.h"
+#include "imgui.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
@@ -153,7 +154,7 @@ void Application::LoadAssets()
 
     auto cubeMesh = std::make_shared<Mesh>(m_context, m_allocator, cubeVerts, cubeIndices);
 
-    std::string modelPath = "assets/DamagedHelmet/DamagedHelmet.gltf";
+    std::string modelPath = "assets/models/DamagedHelmet/DamagedHelmet.gltf";
 
     auto helmetModel = std::make_shared<Model>(m_context, m_allocator, m_bindlessAlloc, modelPath);
 
@@ -174,8 +175,9 @@ void Application::LoadAssets()
 
     Entity e3;
     e3.name = "Helmet";
-    e3.transform.position = glm::vec3(2.0f, 0.0f, -2.0f);
-    e3.transform.scale = glm::vec3(1.0f);
+    e3.transform.position = glm::vec3(2.0f, 1.0f, -2.0f);
+    e3.transform.scale = glm::vec3(0.7f);
+    e3.transform.rotation = glm::quat(0.0f, 0.0f, 1.0f, 0.0f);
     e3.mesh = helmetModel->GetMeshes().front();
     e3.albedoTexture = helmetModel->GetMeshes().front()->GetTexture();
     m_scene.AddEntity(e3);
@@ -183,41 +185,79 @@ void Application::LoadAssets()
 
 void Application::Update(float dt)
 {
-    float speed = 5.0f * dt;
-
-    if (m_window->IsKeyDown(SDL_SCANCODE_W))
-        m_camPos += glm::vec3(0.0f, 0.0f, -speed);
-    if (m_window->IsKeyDown(SDL_SCANCODE_S))
-        m_camPos += glm::vec3(0.0f, 0.0f, speed);
-    if (m_window->IsKeyDown(SDL_SCANCODE_A))
-        m_camPos += glm::vec3(-speed, 0.0f, 0.0f);
-    if (m_window->IsKeyDown(SDL_SCANCODE_D))
-        m_camPos += glm::vec3(speed, 0.0f, 0.0f);
-    if (m_window->IsKeyDown(SDL_SCANCODE_SPACE))
-        m_camPos += glm::vec3(0.0f, speed, 0.0f);
-    if (m_window->IsKeyDown(SDL_SCANCODE_LCTRL))
-        m_camPos += glm::vec3(0.0f, -speed, 0.0f);
-    if (m_window->IsKeyDown(SDL_SCANCODE_SPACE))
-        m_camPos += glm::vec3(0.0f, speed, 0.0f);
-    if (m_window->IsKeyDown(SDL_SCANCODE_LCTRL))
-        m_camPos += glm::vec3(0.0f, -speed, 0.0f);
     if (m_window->IsKeyDown(SDL_SCANCODE_ESCAPE))
         m_window->RequestClose();
 
-    m_editor->NewFrame();
+    bool isViewportHovered = m_editor->IsViewportHovered();
+    bool rightMouseDown = m_window->IsMouseButtonDown(SDL_BUTTON_RIGHT);
+
+    glm::vec3 front;
+    front.x = cos(glm::radians(m_camYaw)) * cos(glm::radians(m_camPitch));
+    front.y = sin(glm::radians(m_camPitch));
+    front.z = sin(glm::radians(m_camYaw)) * cos(glm::radians(m_camPitch));
+    front = glm::normalize(front);
+
+    glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+    glm::vec3 up = glm::normalize(glm::cross(right, front));
+
+    if (rightMouseDown && isViewportHovered)
+    {
+        if (!m_isRightMouseDown)
+        {
+            SDL_SetWindowRelativeMouseMode(m_window->GetSDLWindow(), true);
+            SDL_SetWindowMouseGrab(m_window->GetSDLWindow(), true);
+            SDL_GetRelativeMouseState(nullptr, nullptr);
+        }
+        m_isRightMouseDown = true;
+
+        float deltaX = 0.0f, deltaY = 0.0f;
+        SDL_GetRelativeMouseState(&deltaX, &deltaY);
+
+        deltaX = std::clamp(deltaX, -50.0f, 50.0f);
+        deltaY = std::clamp(deltaY, -50.0f, 50.0f);
+
+        float sensitivity = 0.15f;
+        m_camYaw += deltaX * sensitivity;
+        m_camPitch -= deltaY * sensitivity;
+        m_camPitch = std::clamp(m_camPitch, -89.0f, 89.0f);
+
+        float speed = m_camSpeed * dt;
+        if (m_window->IsKeyDown(SDL_SCANCODE_LSHIFT))
+            speed *= 3.0f;
+
+        if (m_window->IsKeyDown(SDL_SCANCODE_W))
+            m_camPos += front * speed;
+        if (m_window->IsKeyDown(SDL_SCANCODE_S))
+            m_camPos -= front * speed;
+        if (m_window->IsKeyDown(SDL_SCANCODE_A))
+            m_camPos -= right * speed;
+        if (m_window->IsKeyDown(SDL_SCANCODE_D))
+            m_camPos += right * speed;
+        if (m_window->IsKeyDown(SDL_SCANCODE_SPACE))
+            m_camPos += up * speed;
+        if (m_window->IsKeyDown(SDL_SCANCODE_LCTRL))
+            m_camPos -= up * speed;
+    }
+    else
+    {
+        if (m_isRightMouseDown)
+        {
+            SDL_SetWindowRelativeMouseMode(m_window->GetSDLWindow(), false);
+            SDL_SetWindowMouseGrab(m_window->GetSDLWindow(), false);
+        }
+        m_isRightMouseDown = false;
+    }
+
+    glm::mat4 view = glm::lookAt(m_camPos, m_camPos + front, up);
 
     VkExtent2D viewportSize = m_editor->GetViewportSize();
     if (viewportSize.width == 0 || viewportSize.height == 0)
     {
         viewportSize = m_swapchain->GetExtent();
     }
-
     float aspect = (float)viewportSize.width / (float)viewportSize.height;
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
     proj[1][1] *= -1.0f;
-
-    glm::mat4 view =
-        glm::lookAt(m_camPos, m_camPos + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
     bool isVrMirror = !m_editor->IsUIVisible() && m_xrContext && m_xrContext->IsSessionRunning();
 
@@ -245,6 +285,7 @@ void Application::Update(float dt)
         }
     }
 
+    m_editor->NewFrame();
     m_editor->DrawUI(m_scene, view, proj, m_swapchain->GetExtent().width, m_swapchain->GetExtent().height,
                      viewportSize, m_renderer->GetViewportDescriptorSet());
 

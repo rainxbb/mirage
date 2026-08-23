@@ -25,14 +25,14 @@ public:
     void RecordDrawData(VkCommandBuffer cmd);
 
     bool IsUIVisible() const { return m_showUI; }
+    bool IsViewportHovered() const { return m_isViewportHovered; }
     VkExtent2D GetViewportSize() const { return m_viewportSize; }
 
 private:
     void HandleInput();
-    void DrawMenuBar();
+    void DrawStatusBar(Scene& scene);
     void DrawSceneHierarchy(Scene& scene);
     void DrawInspector(Scene& scene);
-    void DrawStatsOverlay(Scene& scene);
     void DrawContentBrowser();
     void DrawSceneViewport(VkDescriptorSet viewportTexture, VkExtent2D& outViewportSize, Scene& scene,
                            const glm::mat4& view, const glm::mat4& proj);
@@ -48,6 +48,7 @@ private:
     VkExtent2D m_viewportSize{0, 0};
 
     bool m_showUI = true;
+    bool m_isViewportHovered = false;
 
     bool m_tabPressedLastFrame = false;
     bool m_wPressedLastFrame = false;

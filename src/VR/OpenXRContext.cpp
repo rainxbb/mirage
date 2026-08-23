@@ -263,13 +263,27 @@ void OpenXRContext::CreateSwapchains()
     std::vector<int64_t> formats(formatCount);
     xrEnumerateSwapchainFormats(m_session, formatCount, &formatCount, formats.data());
 
-    int64_t chosenFormat = VK_FORMAT_R8G8B8A8_SRGB;
+    int64_t chosenFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    bool foundUnorm = false;
     for (int64_t fmt : formats)
     {
-        if (fmt == VK_FORMAT_R8G8B8A8_SRGB)
+        if (fmt == VK_FORMAT_R8G8B8A8_UNORM)
         {
             chosenFormat = fmt;
+            foundUnorm = true;
             break;
+        }
+    }
+
+    if (!foundUnorm)
+    {
+        for (int64_t fmt : formats)
+        {
+            if (fmt == VK_FORMAT_R8G8B8A8_SRGB)
+            {
+                chosenFormat = fmt;
+                break;
+            }
         }
     }
 

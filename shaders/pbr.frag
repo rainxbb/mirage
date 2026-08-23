@@ -49,6 +49,7 @@ void main() {
     vec3 ambient = diffuseColor * vec3(0.1);
     
     vec3 color = ambient + diffuse + specular;
+    color *= 2.0;
     color = pow(color, vec3(1.0 / 2.2));
     
     outColor = vec4(color, albedo.a);
