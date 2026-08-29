@@ -3,6 +3,7 @@
 
 #include <glm/glm.hpp>
 #include <memory>
+#include <string>
 #define XR_USE_GRAPHICS_API_VULKAN
 #define XR_EXTENSION_PROTOTYPES
 #include <openxr/openxr.h>

@@ -1,7 +1,5 @@
 #include "FileWatcher.h"
 
-#include <iostream>
-
 namespace Mirage
 {
 

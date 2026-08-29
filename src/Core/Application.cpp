@@ -3,7 +3,6 @@
 #include "../Assets/Mesh.h"
 #include "../Assets/Model.h"
 #include "../Assets/Texture.h"
-#include "imgui.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>

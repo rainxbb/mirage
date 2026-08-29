@@ -4,7 +4,6 @@
 #include "Pipeline.h"
 
 #include <array>
-#include <iostream>
 #include <stdexcept>
 
 namespace Mirage
