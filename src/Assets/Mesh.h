@@ -34,6 +34,9 @@ public:
     std::shared_ptr<Texture> GetTexture() const { return m_texture; }
     uint32_t GetTextureIndex() const { return m_texture ? m_texture->GetBindlessIndex() : 0; }
 
+    glm::vec3 boundMin{0.0f};
+    glm::vec3 boundMax{0.0f};
+
 private:
     std::shared_ptr<VulkanContext> m_context;
     std::shared_ptr<MemoryAllocator> m_allocator;

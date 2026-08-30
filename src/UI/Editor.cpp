@@ -21,6 +21,36 @@
 namespace Mirage
 {
 
+namespace
+{
+bool IntersectRayAABB(glm::vec3 orig, glm::vec3 dir, glm::vec3 min, glm::vec3 max, float& t)
+{
+    float tmin = -INFINITY, tmax = INFINITY;
+    for (int i = 0; i < 3; i++)
+    {
+        if (std::abs(dir[i]) < 1e-6f)
+        {
+            if (orig[i] < min[i] || orig[i] > max[i])
+                return false;
+        }
+        else
+        {
+            float ood = 1.0f / dir[i];
+            float t1 = (min[i] - orig[i]) * ood;
+            float t2 = (max[i] - orig[i]) * ood;
+            if (t1 > t2)
+                std::swap(t1, t2);
+            tmin = std::max(tmin, t1);
+            tmax = std::min(tmax, t2);
+            if (tmin > tmax)
+                return false;
+        }
+    }
+    t = tmin;
+    return true;
+}
+} // namespace
+
 Editor::Editor(std::shared_ptr<VulkanContext> context, std::shared_ptr<Window> window,
                VkFormat swapchainFormat, std::shared_ptr<MemoryAllocator> allocator,
                std::shared_ptr<BindlessAllocator> bindlessAlloc)
@@ -309,10 +339,72 @@ void Editor::DrawSceneViewport(VkDescriptorSet viewportTexture, VkExtent2D& outV
         ImGui::Image(viewportTexture, ImVec2(m_viewportSize.width, m_viewportSize.height), ImVec2(0, 0),
                      ImVec2(1, 1));
 
-        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(0) && !ImGuizmo::IsUsing() &&
-            !ImGuizmo::IsOver())
+        if (ImGui::BeginDragDropTarget())
         {
-            m_selectedEntityIndex = -1;
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_MODEL"))
+            {
+                std::string path((const char*)payload->Data);
+                LoadDroppedModel(scene, path);
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            if (!ImGuizmo::IsUsing() && !ImGuizmo::IsOver())
+            {
+                ImVec2 mousePos = ImGui::GetMousePos();
+                float mx = mousePos.x - viewportPos.x;
+                float my = mousePos.y - viewportPos.y;
+
+                if (mx >= 0 && mx < m_viewportSize.width && my >= 0 && my < m_viewportSize.height)
+                {
+                    float x = (2.0f * mx) / m_viewportSize.width - 1.0f;
+                    float y = 1.0f - (2.0f * my) / m_viewportSize.height;
+
+                    glm::vec4 rayClip(x, y, -1.0f, 1.0f);
+                    glm::vec4 rayEye = glm::inverse(proj) * rayClip;
+                    rayEye.z = -1.0f;
+                    rayEye.w = 0.0f;
+
+                    glm::vec3 rayWorld = glm::normalize(glm::vec3(glm::inverse(view) * rayEye));
+                    glm::vec3 rayOrigin = glm::vec3(glm::inverse(view) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+                    float closestT = 1e9f;
+                    int closestEntity = -1;
+
+                    for (int i = 0; i < scene.GetEntities().size(); i++)
+                    {
+                        const auto& e = scene.GetEntities()[i];
+                        if (!e.mesh)
+                            continue;
+
+                        glm::mat4 model = e.transform.GetMatrix();
+                        glm::vec3 wMin(1e9f), wMax(-1e9f);
+
+                        for (int c = 0; c < 8; c++)
+                        {
+                            glm::vec3 corner((c & 1) ? e.mesh->boundMax.x : e.mesh->boundMin.x,
+                                             (c & 2) ? e.mesh->boundMax.y : e.mesh->boundMin.y,
+                                             (c & 4) ? e.mesh->boundMax.z : e.mesh->boundMin.z);
+                            glm::vec3 worldCorner = glm::vec3(model * glm::vec4(corner, 1.0f));
+                            wMin = glm::min(wMin, worldCorner);
+                            wMax = glm::max(wMax, worldCorner);
+                        }
+
+                        float t;
+                        if (IntersectRayAABB(rayOrigin, rayWorld, wMin, wMax, t))
+                        {
+                            if (t < closestT && t > 0.0f)
+                            {
+                                closestT = t;
+                                closestEntity = i;
+                            }
+                        }
+                    }
+                    m_selectedEntityIndex = closestEntity;
+                }
+            }
         }
 
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
@@ -334,7 +426,6 @@ void Editor::DrawSceneViewport(VkDescriptorSet viewportTexture, VkExtent2D& outV
 
                 ImGuizmo::MODE mode = ImGuizmo::LOCAL;
                 glm::mat4 model = selectedEntity.transform.GetMatrix();
-
                 glm::mat4 gizmoProj = proj;
                 gizmoProj[1][1] *= -1.0f;
 
@@ -673,7 +764,8 @@ void Editor::LoadDroppedModel(Scene& scene, const std::string& path)
         {
             Entity e;
             e.name = baseName + "_Part_" + std::to_string(partIndex++);
-            e.transform.position = glm::vec3(0.0f, 0.0f, -3.0f);
+            e.transform.position = glm::vec3(0.0f, 0.0f, -1.0f);
+            e.transform.rotation = glm::quat(0.0f, 0.0f, 1.0f, 0.0f);
             e.mesh = mesh;
             e.albedoTexture = mesh->GetTexture();
             scene.AddEntity(e);

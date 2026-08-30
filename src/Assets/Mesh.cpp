@@ -12,7 +12,6 @@ Mesh::Mesh(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryAllocat
            const std::string& path)
     : m_context(context), m_allocator(allocator)
 {
-
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_GenSmoothNormals |
                                                        aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
@@ -96,6 +95,13 @@ Mesh::Mesh(std::shared_ptr<VulkanContext> context, std::shared_ptr<MemoryAllocat
            const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
     : m_context(context), m_allocator(allocator), m_vertices(vertices)
 {
+    boundMin = glm::vec3(1e9f);
+    boundMax = glm::vec3(-1e9f);
+    for (const auto& v : vertices)
+    {
+        boundMin = glm::min(boundMin, v.pos);
+        boundMax = glm::max(boundMax, v.pos);
+    }
 
     m_indexCount = static_cast<uint32_t>(indices.size());
     VkDeviceSize vertexSize = sizeof(Vertex) * vertices.size();
